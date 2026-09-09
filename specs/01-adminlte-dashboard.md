@@ -1,6 +1,6 @@
 # SPEC 01 — Integración del shell AdminLTE y dashboard de ejemplo
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Fecha:** 2026-09-09
 > **Objetivo:** Integrar la librería oficial AdminLTE React (`@adminlte/react`) como shell global de la app y convertir la home en un dashboard de ejemplo de gestión de pagos, re-skinneado por completo con los tokens de `DESIGN.md`.
 

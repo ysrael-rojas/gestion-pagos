@@ -7,6 +7,7 @@ import { menuItems } from "@/lib/menu";
 import "@adminlte/react/css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "./globals.css";
+import "./adminlte-theme.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,6 +37,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <DashboardLayout
           menuItems={menuItems}
+          logo={<span>Gestión de Pagos</span>}
+          user={{ name: "", image: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" }}
           fixedHeader
           fixedSidebar
           colorModeToggle={false}

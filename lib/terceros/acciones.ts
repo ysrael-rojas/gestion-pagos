@@ -1,5 +1,6 @@
 "use server";
 
+import { requerirPermiso, requerirUsuario } from "@/lib/auth/sesion";
 import { crearClienteAdmin } from "@/lib/supabase/server";
 import {
   normalizarCampos,
@@ -12,6 +13,8 @@ import {
 import { aFila, aTercero, erroresDesdePostgrest } from "@/lib/terceros/mapeo";
 
 export async function listarTerceros(): Promise<Tercero[]> {
+  await requerirUsuario();
+
   const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
@@ -27,6 +30,8 @@ export async function listarTerceros(): Promise<Tercero[]> {
 }
 
 export async function crearTercero(datos: DatosTercero): Promise<Resultado<Tercero>> {
+  await requerirPermiso("gestionar_terceros");
+
   const normalizado = normalizarCampos(datos);
   const errores = validar(normalizado, []);
   if (Object.keys(errores).length > 0) {
@@ -51,6 +56,8 @@ export async function actualizarTercero(
   id: string,
   datos: DatosActualizacion,
 ): Promise<Resultado<Tercero>> {
+  await requerirPermiso("gestionar_terceros");
+
   const normalizado = normalizarCampos(datos);
   const errores = validar(normalizado, []);
   if (Object.keys(errores).length > 0) {
@@ -89,9 +96,13 @@ async function cambiarActivo(id: string, activo: boolean): Promise<Resultado<Ter
 }
 
 export async function desactivarTercero(id: string): Promise<Resultado<Tercero>> {
+  await requerirPermiso("gestionar_terceros");
+
   return cambiarActivo(id, false);
 }
 
 export async function reactivarTercero(id: string): Promise<Resultado<Tercero>> {
+  await requerirPermiso("gestionar_terceros");
+
   return cambiarActivo(id, true);
 }

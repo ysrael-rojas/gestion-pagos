@@ -13,6 +13,7 @@ interface TerceroConfirmModalProps {
   mensaje: ReactNode;
   textoConfirmar: string;
   tema: BootstrapTheme;
+  procesando?: boolean;
   onConfirmar: () => void;
   onCerrar: () => void;
 }
@@ -23,6 +24,7 @@ export function TerceroConfirmModal({
   mensaje,
   textoConfirmar,
   tema,
+  procesando = false,
   onConfirmar,
   onCerrar,
 }: TerceroConfirmModalProps) {
@@ -45,7 +47,12 @@ export function TerceroConfirmModal({
           <button type="button" className="btn btn-outline-secondary" onClick={onCerrar}>
             Cancelar
           </button>
-          <Button theme={tema} label={textoConfirmar} onClick={onConfirmar} />
+          <Button
+            theme={tema}
+            label={procesando ? "Procesando…" : textoConfirmar}
+            onClick={onConfirmar}
+            disabled={procesando}
+          />
         </>
       }
     >

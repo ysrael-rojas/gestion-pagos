@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { Badge, Button, Card, Pagination, Table, type TableColumn } from "@adminlte/react";
+import { desactivarTercero, reactivarTercero } from "@/lib/terceros/acciones";
 import {
   ETIQUETAS_ROL,
   ETIQUETAS_TIPO_DOCUMENTO,
@@ -54,6 +55,8 @@ interface TercerosListaProps {
 
 export function TercerosLista({ iniciales }: TercerosListaProps) {
   const [terceros, setTerceros] = useState<Tercero[]>(iniciales);
+  const [procesando, setProcesando] = useState(false);
+  const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [texto, setTexto] = useState("");
   const [rol, setRol] = useState<RolTercero | "">("");
   const [incluirInactivos, setIncluirInactivos] = useState(false);
@@ -89,6 +92,7 @@ export function TercerosLista({ iniciales }: TercerosListaProps) {
   );
   const alGuardar = useCallback((guardado: Tercero) => {
     setFormulario((previo) => ({ ...previo, abierto: false }));
+    setErrorGeneral(null);
     setTerceros((previo) =>
       previo.some((tercero) => tercero.id === guardado.id)
         ? previo.map((tercero) => (tercero.id === guardado.id ? guardado : tercero))
@@ -105,15 +109,32 @@ export function TercerosLista({ iniciales }: TercerosListaProps) {
     () => setConfirmacion((previo) => ({ ...previo, abierto: false })),
     [],
   );
-  const confirmar = useCallback(() => {
+  const confirmar = useCallback(async () => {
     const { tercero, accion } = confirmacion;
-    if (tercero) {
-      setTerceros((previo) =>
-        previo.map((actual) =>
-          actual.id === tercero.id ? { ...actual, activo: accion === "reactivar" } : actual,
-        ),
-      );
+    if (!tercero) {
+      setConfirmacion((previo) => ({ ...previo, abierto: false }));
+      return;
     }
+
+    setProcesando(true);
+    setErrorGeneral(null);
+
+    const resultado =
+      accion === "desactivar"
+        ? await desactivarTercero(tercero.id)
+        : await reactivarTercero(tercero.id);
+
+    setProcesando(false);
+
+    if (!resultado.ok) {
+      setErrorGeneral(resultado.errores.general ?? "No se pudo completar la operación.");
+      setConfirmacion((previo) => ({ ...previo, abierto: false }));
+      return;
+    }
+
+    setTerceros((previo) =>
+      previo.map((actual) => (actual.id === resultado.valor.id ? resultado.valor : actual)),
+    );
     setConfirmacion((previo) => ({ ...previo, abierto: false }));
   }, [confirmacion]);
 
@@ -186,6 +207,7 @@ export function TercerosLista({ iniciales }: TercerosListaProps) {
             icon="bi-pencil"
             aria-label={`Editar ${tercero.nombre}`}
             onClick={() => abrirEdicion(tercero)}
+            disabled={procesando}
           />
           {tercero.activo ? (
             <Button
@@ -195,6 +217,7 @@ export function TercerosLista({ iniciales }: TercerosListaProps) {
               icon="bi-slash-circle"
               aria-label={`Desactivar ${tercero.nombre}`}
               onClick={() => abrirConfirmacion(tercero, "desactivar")}
+              disabled={procesando}
             />
           ) : (
             <Button
@@ -204,6 +227,7 @@ export function TercerosLista({ iniciales }: TercerosListaProps) {
               icon="bi-arrow-clockwise"
               aria-label={`Reactivar ${tercero.nombre}`}
               onClick={() => abrirConfirmacion(tercero, "reactivar")}
+              disabled={procesando}
             />
           )}
         </div>
@@ -216,6 +240,18 @@ export function TercerosLista({ iniciales }: TercerosListaProps) {
   return (
     <>
       <Card title="Listado de Terceros">
+        {errorGeneral ? (
+          <div className="alert alert-danger alert-dismissible py-2 mb-3" role="alert">
+            {errorGeneral}
+            <button
+              type="button"
+              className="btn-close"
+              aria-label="Cerrar"
+              onClick={() => setErrorGeneral(null)}
+            />
+          </div>
+        ) : null}
+
         <div className="row g-2 align-items-center mb-3">
           <div className="col-12 col-lg-4">
             <input
@@ -264,7 +300,13 @@ export function TercerosLista({ iniciales }: TercerosListaProps) {
             </div>
           </div>
           <div className="col-12 col-lg-2 text-lg-end">
-            <Button theme="primary" icon="bi-plus-lg" label="Nuevo" onClick={abrirAlta} />
+            <Button
+              theme="primary"
+              icon="bi-plus-lg"
+              label="Nuevo"
+              onClick={abrirAlta}
+              disabled={procesando}
+            />
           </div>
         </div>
 
@@ -297,6 +339,7 @@ export function TercerosLista({ iniciales }: TercerosListaProps) {
 
       <TerceroConfirmModal
         abierto={confirmacion.abierto}
+        procesando={procesando}
         titulo={desactivando ? "Desactivar Tercero" : "Reactivar Tercero"}
         tema={desactivando ? "danger" : "success"}
         textoConfirmar={desactivando ? "Desactivar" : "Reactivar"}

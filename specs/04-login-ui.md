@@ -1,6 +1,6 @@
 # SPEC 04 — Vista de inicio de sesión (`/login`)
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-09-17
 > **Objetivo:** Añadir la ruta `/login` como vista presentacional de dos paneles fuera del shell AdminLTE, reutilizando los tokens de `DESIGN.md` ya mapeados a variables `--gp-*`.
@@ -83,21 +83,21 @@ Sin gradientes, sin sombras, radios de 4px y todo en la tipografía monoespaciad
 
 ## Acceptance criteria
 
-- [ ] `npm run build`, `npm run lint` y `npx tsc --noEmit` terminan sin errores.
-- [ ] `/login` renderiza sin sidebar, sin topbar y sin footer de AdminLTE.
-- [ ] `/` y `/terceros` siguen renderizando con el shell completo y conservan sus URLs.
-- [ ] Existen `app/(dashboard)/layout.tsx`, `app/(auth)/login/page.tsx` y `app/(auth)/login/login.css`.
-- [ ] `app/layout.tsx` no importa `@adminlte/react` ni contiene `DashboardLayout`.
-- [ ] El panel izquierdo contiene únicamente "ERP GESTION COMERCIAL" y "Software para control del pagos"; no hay logo, ni pie, ni selector.
-- [ ] El panel derecho no contiene "INGRESO COMO" ni las opciones "Personal"/"Familia".
-- [ ] El panel derecho muestra h1 "Iniciar sesión", subtítulo "Ingresa para gestionar tus pagos.", etiquetas EMAIL y CONTRASEÑA, enlace "¿Olvidaste tu contraseña?", botón "Iniciar sesión" y pie "¿Te invitó la empresa? Activa tu cuenta".
-- [ ] El campo EMAIL está vacío y usa `placeholder="tu@empresa.com"`; el campo CONTRASEÑA es `type="password"`.
-- [ ] El formulario no envía nada: sin `action`, sin `onSubmit`, sin Server Action; el botón es `type="button"` y los enlaces apuntan a `#`.
-- [ ] Computed styles verificados (no a ojo): fondo del panel izquierdo `rgb(248, 247, 247)`, fondo del derecho `rgb(253, 252, 252)`, botón sin `box-shadow` y con radio 4px, y `font-family` resolviendo a `--font-geist-mono`.
-- [ ] Ningún elemento de `/login` tiene gradiente ni sombra.
-- [ ] A ≤850px el layout colapsa a una columna sin solapamientos ni scroll horizontal.
-- [ ] `/login` no se oscurece cuando el sistema operativo está en modo oscuro.
-- [ ] Sin errores en la consola del navegador.
+- [x] `npm run build`, `npm run lint` y `npx tsc --noEmit` terminan sin errores. — ✅ `LINT_EXIT=0`, `TSC_EXIT=0`, `BUILD_EXIT=0`; el build lista `/login` como ruta estática (`○`).
+- [x] `/login` renderiza sin sidebar, sin topbar y sin footer de AdminLTE. — ✅ DOM de `/login`: no existen `.app-sidebar`, `.app-header` ni `.app-footer`; el árbol es `<main class="login">` con dos `<section>`.
+- [x] `/` y `/terceros` siguen renderizando con el shell completo y conservan sus URLs. — ✅ `location.pathname` = `/` y `/terceros`; ambos con `.app-sidebar`, `.app-header`, `.app-footer` y `.app-content`, y los modales de Terceros siguen abriendo. Captura `.playwright-mcp/verify-04-home-shell.png`.
+- [x] Existen `app/(dashboard)/layout.tsx`, `app/(auth)/login/page.tsx` y `app/(auth)/login/login.css`. — ✅ Los tres archivos existen en disco.
+- [x] `app/layout.tsx` no importa `@adminlte/react` ni contiene `DashboardLayout`. — ✅ `app/layout.tsx` solo importa `next`, `next/font/google` y `./globals.css`; no menciona `@adminlte` ni `DashboardLayout`.
+- [x] El panel izquierdo contiene únicamente "ERP GESTION COMERCIAL" y "Software para control del pagos"; no hay logo, ni pie, ni selector. — ✅ Snapshot de accesibilidad del panel izquierdo: solo `<h1>ERP GESTION COMERCIAL</h1>` y `<p>Software para control del pagos</p>`.
+- [x] El panel derecho no contiene "INGRESO COMO" ni las opciones "Personal"/"Familia". — ✅ El texto completo de la página no contiene "INGRESO COMO", "Personal" ni "Familia".
+- [x] El panel derecho muestra h1 "Iniciar sesión", subtítulo "Ingresa para gestionar tus pagos.", etiquetas EMAIL y CONTRASEÑA, enlace "¿Olvidaste tu contraseña?", botón "Iniciar sesión" y pie "¿Te invitó la empresa? Activa tu cuenta". — ✅ Snapshot de accesibilidad: los seis textos coinciden carácter a carácter con el copy del spec.
+- [x] El campo EMAIL está vacío y usa `placeholder="tu@empresa.com"`; el campo CONTRASEÑA es `type="password"`. — ✅ `#email`: `value=""`, `placeholder="tu@empresa.com"`, `type="email"`; `#password`: `type="password"`.
+- [x] El formulario no envía nada: sin `action`, sin `onSubmit`, sin Server Action; el botón es `type="button"` y los enlaces apuntan a `#`. — ✅ `<form>` sin atributo `action` (`getAttribute('action')` → `null`), `form.onsubmit === null`; el botón es `type="button"`; los dos `<a>` tienen `href="#"`.
+- [x] Computed styles verificados (no a ojo): fondo del panel izquierdo `rgb(248, 247, 247)`, fondo del derecho `rgb(253, 252, 252)`, botón sin `box-shadow` y con radio 4px, y `font-family` resolviendo a `--font-geist-mono`. — ✅ `getComputedStyle`: `.login-brand` → `rgb(248, 247, 247)`; `.login-form-panel` → `rgb(253, 252, 252)`; `.login-button` → `boxShadow: "none"`, `borderRadius: "4px"`; botón e input → `"Geist Mono", "Geist Mono Fallback", ui-monospace, …`, que es exactamente el valor de `--font-geist-mono`.
+- [x] Ningún elemento de `/login` tiene gradiente ni sombra. — ✅ Barrido de todos los elementos de la página: 0 con `background-image` de tipo gradiente, 0 con `box-shadow ≠ none`, 0 con `text-shadow ≠ none`.
+- [x] A ≤850px el layout colapsa a una columna sin solapamientos ni scroll horizontal. — ✅ A 850px: `grid-template-columns: 850px`, brand `bottom=296` = panel `top=296` (sin solape), `scrollWidth=850=innerWidth`. A 851px vuelve a `425.5px 425.5px`; a 375px y 320px una columna, sin solape ni scroll horizontal. Capturas `.playwright-mcp/verify-04-login-850.png`, `verify-04-login-375.png`.
+- [x] `/login` no se oscurece cuando el sistema operativo está en modo oscuro. — ✅ Con `prefers-color-scheme: dark` emulado (`matchMedia('(prefers-color-scheme: dark)').matches === true`), el `color-scheme` calculado es `light` y los fondos siguen en `rgb(248, 247, 247)` / `rgb(253, 252, 252)`. Captura `.playwright-mcp/verify-04-login-dark-os.png`.
+- [x] Sin errores en la consola del navegador. — ✅ `playwright_browser_console_messages(all=true, level=error)` → 0 errores en `/login`.
 
 ## Decisions
 

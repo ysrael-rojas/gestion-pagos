@@ -1,6 +1,6 @@
 # SPEC 02 — CRUD de Terceros (clientes y proveedores)
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Fecha:** 2026-09-17
 > **Objetivo:** Implementar alta, consulta, edición y desactivación de **Terceros** (clientes y proveedores) en `/terceros`, accesible desde el nuevo menú `MAESTRO`, con el formulario en modal y persistencia local tras un repositorio.
 
@@ -101,22 +101,24 @@ reactivar(id: string): Resultado<Tercero>
 
 ## Acceptance criteria
 
-- [ ] `npm run build`, `npm run lint` y `npx tsc --noEmit` terminan sin errores.
-- [ ] El menú lateral muestra `MAESTRO` como grupo colapsable con `CLIENTES Y PROVEEDORES` dentro; el grupo se expande y colapsa.
-- [ ] `/terceros` renderiza `AppContent` con breadcrumbs Home / Clientes y Proveedores y el listado de Terceros.
-- [ ] El listado muestra ambos roles juntos y la columna de roles usa `Badge` (no texto plano).
-- [ ] Encima de la tabla hay un botón de alta que abre el modal del formulario.
-- [ ] Alta: crear un Tercero con DNI válido y un rol lo inserta en el listado y sobrevive a un recargado de página.
-- [ ] Alta inválida: DNI de 7 dígitos, RUC duplicado y cero roles muestran error por campo y **no** insertan.
-- [ ] `SIN_DOCUMENTO` deshabilita y limpia el número; guarda `numeroDocumento: null`.
-- [ ] La etiqueta del campo nombre cambia entre "Razón social" (RUC) y "Nombre completo" (resto).
-- [ ] Edición: cambiar el teléfono de un Tercero se refleja en la tabla.
-- [ ] Desactivar pide confirmación en modal; tras confirmar, el Tercero desaparece del listado por defecto.
-- [ ] El toggle "mostrar inactivos" lo vuelve a mostrar, y desde ahí se puede reactivar.
-- [ ] Búsqueda por nombre y por número de documento filtra el listado; el filtro por rol deja solo clientes o solo proveedores.
-- [ ] Un Tercero desactivado conserva su `id` y sus datos; reactivar no crea un duplicado.
-- [ ] El formulario no cierra el modal ni pierde los datos introducidos cuando la validación falla.
-- [ ] Sin errores en consola del navegador en el flujo completo.
+- [x] `npm run build`, `npm run lint` y `npx tsc --noEmit` terminan sin errores. — ✅ `LINT_EXIT=0`, `TSC_EXIT=0`, `BUILD_EXIT=0` (✓ Compiled successfully in 15.4s; rutas `/`, `/_not-found`, `/login`, `/terceros`).
+- [x] El menú lateral muestra `MAESTRO` como grupo colapsable con `CLIENTES Y PROVEEDORES` dentro; el grupo se expande y colapsa. — ✅ Playwright: clic en `MAESTRO` → `ul.nav-treeview` con `display: none` y altura 0; segundo clic → `display: block`, altura 43.19px, link "CLIENTES Y PROVEEDORES" con `href="/terceros"` y altura 40px.
+- [x] `/terceros` renderiza `AppContent` con breadcrumbs Home / Clientes y Proveedores y el listado de Terceros. — ✅ DOM: heading "Clientes y Proveedores", breadcrumbs `["Home", "Clientes y Proveedores"]`, card "Listado de Terceros" con tabla de 6 columnas.
+- [x] El listado muestra ambos roles juntos y la columna de roles usa `Badge` (no texto plano). — ✅ 6 nodos `.badge` en la columna Roles: `class="badge text-bg-primary"` (Cliente) y `"badge text-bg-info"` (Proveedor). "Carlos Alberto Ríos Salazar" aparece con ambos roles en la misma fila.
+- [x] Encima de la tabla hay un botón de alta que abre el modal del formulario. — ✅ Geometría: botón "Nuevo" `bottom=236px` < `table top=252px`; el clic abre el dialog "Nuevo Tercero" (`display: block`).
+- [x] Alta: crear un Tercero con DNI válido y un rol lo inserta en el listado y sobrevive a un recargado de página. — ✅ Alta "A1 Verificacion Alta" (DNI `11223344`, rol cliente) → fila visible en la tabla; tras recargar sigue visible; en Supabase `id=9c1f11d1-b523-498b-896f-9af9d6f75f3a`, `document_number=11223344`.
+- [x] Alta inválida: DNI de 7 dígitos, RUC duplicado y cero roles muestran error por campo y **no** insertan. — ✅ `1234567` + cero roles + correo `no-es-correo` → tres `.invalid-feedback` visibles: "El DNI debe tener 8 dígitos.", "Selecciona al menos un rol.", "Introduce un correo válido."; RUC `20123456789` duplicado → "Ya existe un Tercero con ese tipo y número de documento."; Supabase: 0 filas con los nombres usados en el intento. Captura `.playwright-mcp/verify-02-alta-invalida.png`.
+- [x] `SIN_DOCUMENTO` deshabilita y limpia el número; guarda `numeroDocumento: null`. — ✅ Con tipo `SIN_DOCUMENTO` el input `numeroDocumento` queda `disabled=true` y `value=""`; el alta persiste `document_number = null` en Supabase (`id=f69b3d89-37d0-4cbe-84b4-6c43e18ddd6c`).
+- [x] La etiqueta del campo nombre cambia entre "Razón social" (RUC) y "Nombre completo" (resto). — ✅ Leído del DOM del modal: con `RUC` el label es "Razón social"; con `DNI`, `SIN_DOCUMENTO` y `CARNET_EXTRANJERIA` es "Nombre completo".
+- [x] Edición: cambiar el teléfono de un Tercero se refleja en la tabla. — ✅ Editar "A1 Verificacion Alta" → teléfono `+51 999 888 777` en la celda Contacto y en Supabase (`phone`), también tras recargar.
+- [x] Desactivar pide confirmación en modal; tras confirmar, el Tercero desaparece del listado por defecto. — ✅ El botón Desactivar abre `#tercero-confirm-modal` con "Desactivar Tercero / ¿Confirmas desactivar a A1 Verificacion Alta?…"; al confirmar, `active=false` en Supabase y la fila desaparece del listado por defecto. Captura `.playwright-mcp/verify-02-confirm-desactivar.png`.
+- [x] El toggle "mostrar inactivos" lo vuelve a mostrar, y desde ahí se puede reactivar. — ✅ Con el switch activado la fila reaparece con `Badge` "Inactivo" y botón "Reactivar A1 Verificacion Alta"; al confirmar vuelve a "Activo".
+- [x] Búsqueda por nombre y por número de documento filtra el listado; el filtro por rol deja solo clientes o solo proveedores. — ✅ Búsqueda "Lucía" → 1 fila; búsqueda "45678912" → 1 fila (María Fernanda Quispe Huamán); filtro Proveedores → 4 filas, todas con rol Proveedor; filtro Clientes → 5 filas, todas con rol Cliente.
+- [x] Un Tercero desactivado conserva su `id` y sus datos; reactivar no crea un duplicado. — ✅ Reactivar conserva `id=9c1f11d1-b523-498b-896f-9af9d6f75f3a`; `count(*)` de `document_number='11223344'` = 1 tras reactivar.
+- [x] El formulario no cierra el modal ni pierde los datos introducidos cuando la validación falla. — ✅ Tras el envío inválido el modal sigue en `display: block` y los valores `numeroDocumento="1234567"`, `nombre="Prueba Invalida"`, `correo="no-es-correo"` permanecen.
+- [x] Sin errores en consola del navegador en el flujo completo. — ✅ `playwright_browser_console_messages(all=true, level=error)` → 0 errores; los logs de la sesión (`.playwright-mcp/console-2026-09-17T19-*.log`) no contienen ninguna línea `[ERROR]`.
+
+> Nota de verificación: la persistencia descrita en este spec (`localStorage` tras `lib/terceros-repo.ts`) fue sustituida por Supabase en SPEC 03. Los criterios de este spec siguen cumpliéndose sobre la implementación vigente (el "sobrevive a un recargado" se verifica contra `third_parties`).
 
 ## Decisions
 

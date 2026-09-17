@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Badge, Button, Card, Pagination, Table, type TableColumn } from "@adminlte/react";
 import {
   ETIQUETAS_ROL,
@@ -9,7 +9,6 @@ import {
   type RolTercero,
   type Tercero,
 } from "@/lib/terceros/dominio";
-import { desactivar, listar, reactivar } from "@/lib/terceros-repo";
 import { TerceroConfirmModal } from "./tercero-confirm-modal";
 import { TerceroFormModal } from "./tercero-form-modal";
 
@@ -20,39 +19,21 @@ const TEMA_ROL: Record<RolTercero, "primary" | "info"> = {
   proveedor: "info",
 };
 
-const LISTA_VACIA: Tercero[] = [];
-
-let version = 0;
-const suscriptores = new Set<() => void>();
-let cache: { clave: string; version: number; datos: Tercero[] } | null = null;
-
-function suscribir(listener: () => void): () => void {
-  suscriptores.add(listener);
-  return () => {
-    suscriptores.delete(listener);
-  };
-}
-
-function notificarCambio(): void {
-  version += 1;
-  suscriptores.forEach((listener) => listener());
-}
-
-function leerConCache(clave: string, filtros: FiltrosTerceros): Tercero[] {
-  if (cache === null || cache.clave !== clave || cache.version !== version) {
-    cache = { clave, version, datos: listar(filtros) };
-  }
-  return cache.datos;
-}
-
-function useTerceros(texto: string, rol: RolTercero | "", incluirInactivos: boolean): Tercero[] {
-  const clave = `${texto}|${rol}|${incluirInactivos ? "1" : "0"}`;
-  const obtenerSnapshot = useCallback(
-    () => leerConCache(clave, { texto, rol: rol === "" ? undefined : rol, incluirInactivos }),
-    [clave, texto, rol, incluirInactivos],
-  );
-  const obtenerSnapshotServidor = useCallback(() => LISTA_VACIA, []);
-  return useSyncExternalStore(suscribir, obtenerSnapshot, obtenerSnapshotServidor);
+function filtrar(terceros: Tercero[], filtros: FiltrosTerceros): Tercero[] {
+  const { texto, rol, incluirInactivos = false } = filtros;
+  const busqueda = texto?.trim().toLowerCase() ?? "";
+  return terceros
+    .filter((tercero) => incluirInactivos || tercero.activo)
+    .filter((tercero) => (rol ? tercero.roles.includes(rol) : true))
+    .filter((tercero) => {
+      if (busqueda === "") {
+        return true;
+      }
+      const nombre = tercero.nombre.toLowerCase();
+      const numero = (tercero.numeroDocumento ?? "").toLowerCase();
+      return nombre.includes(busqueda) || numero.includes(busqueda);
+    })
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
 }
 
 interface EstadoFormulario {
@@ -67,7 +48,12 @@ interface EstadoConfirmacion {
   accion: "desactivar" | "reactivar";
 }
 
-export function TercerosLista() {
+interface TercerosListaProps {
+  iniciales: Tercero[];
+}
+
+export function TercerosLista({ iniciales }: TercerosListaProps) {
+  const [terceros, setTerceros] = useState<Tercero[]>(iniciales);
   const [texto, setTexto] = useState("");
   const [rol, setRol] = useState<RolTercero | "">("");
   const [incluirInactivos, setIncluirInactivos] = useState(false);
@@ -83,7 +69,10 @@ export function TercerosLista() {
     accion: "desactivar",
   });
 
-  const terceros = useTerceros(texto, rol, incluirInactivos);
+  const filtrados = useMemo(
+    () => filtrar(terceros, { texto, rol: rol === "" ? undefined : rol, incluirInactivos }),
+    [terceros, texto, rol, incluirInactivos],
+  );
 
   const abrirAlta = useCallback(
     () => setFormulario((previo) => ({ abierto: true, tercero: null, sesion: previo.sesion + 1 })),
@@ -98,9 +87,13 @@ export function TercerosLista() {
     () => setFormulario((previo) => ({ ...previo, abierto: false })),
     [],
   );
-  const alGuardar = useCallback(() => {
+  const alGuardar = useCallback((guardado: Tercero) => {
     setFormulario((previo) => ({ ...previo, abierto: false }));
-    notificarCambio();
+    setTerceros((previo) =>
+      previo.some((tercero) => tercero.id === guardado.id)
+        ? previo.map((tercero) => (tercero.id === guardado.id ? guardado : tercero))
+        : [...previo, guardado],
+    );
   }, []);
 
   const abrirConfirmacion = useCallback(
@@ -115,17 +108,18 @@ export function TercerosLista() {
   const confirmar = useCallback(() => {
     const { tercero, accion } = confirmacion;
     if (tercero) {
-      const resultado = accion === "desactivar" ? desactivar(tercero.id) : reactivar(tercero.id);
-      if (resultado.ok) {
-        notificarCambio();
-      }
+      setTerceros((previo) =>
+        previo.map((actual) =>
+          actual.id === tercero.id ? { ...actual, activo: accion === "reactivar" } : actual,
+        ),
+      );
     }
     setConfirmacion((previo) => ({ ...previo, abierto: false }));
   }, [confirmacion]);
 
-  const totalPaginas = Math.max(1, Math.ceil(terceros.length / POR_PAGINA));
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const visibles = terceros.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
+  const visibles = filtrados.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
 
   const columnas: TableColumn<Tercero>[] = [
     {

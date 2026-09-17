@@ -1,6 +1,6 @@
 # SPEC 03 — Integración de Terceros con Supabase
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 02
 > **Fecha:** 2026-09-17
 > **Objetivo:** Sustituir la persistencia local de Terceros por la tabla `third_parties` de Supabase, con acceso server-side vía `service_role`, sin cambiar la UI ni el contrato de validación.
@@ -118,19 +118,19 @@ La validación de `lib/terceros/dominio.ts` sigue ejecutándose en el cliente **
 
 ## Acceptance criteria
 
-- [ ] `npm run build`, `npm run lint` y `npx tsc --noEmit` terminan sin errores.
-- [ ] `@supabase/supabase-js` figura en `package.json` con versión fija.
-- [ ] `/terceros` muestra los 10 Terceros de prueba que ya viven en Supabase.
-- [ ] El alta de un Tercero con DNI válido y un rol lo inserta en Supabase y sobrevive a un recargado de página.
-- [ ] La edición del teléfono se refleja en la tabla y persiste tras recargar.
-- [ ] Desactivar cambia `active` a `false` y el Tercero desaparece del listado por defecto; el toggle "mostrar inactivos" lo vuelve a mostrar y desde ahí se reactiva.
-- [ ] Un DNI de 7 dígitos, un RUC duplicado, cero roles y un correo inválido muestran error por campo y **no** insertan.
-- [ ] Si se fuerza un duplicado saltándose la validación de cliente, el error `23505` de Postgres se muestra como error en `numeroDocumento`.
-- [ ] `SIN_DOCUMENTO` guarda `document_number` como `null`.
-- [ ] Un Tercero desactivado conserva su `id`; reactivar no crea un duplicado.
-- [ ] La cadena de `SUPABASE_SERVICE_ROLE_KEY` no aparece en el bundle cliente (`.next/static`). La caché local de build de Turbopack (`.next/cache/turbopack`) puede contenerla troceada: no se despliega, `.next` está en `.gitignore` y la clave nunca llega al navegador.
-- [ ] Los datos se ven desde una ventana de incógnito distinta (prueba de que la persistencia es remota y no local).
-- [ ] Sin errores en la consola del navegador en el flujo completo.
+- [x] `npm run build`, `npm run lint` y `npx tsc --noEmit` terminan sin errores. — ✅ `LINT_EXIT=0`, `TSC_EXIT=0`, `BUILD_EXIT=0` (✓ Compiled successfully in 15.4s; `/terceros` marcada `ƒ` dinámica).
+- [x] `@supabase/supabase-js` figura en `package.json` con versión fija. — ✅ `"@supabase/supabase-js": "2.116.0"`, sin rango `^`/`~`.
+- [x] `/terceros` muestra los 10 Terceros de prueba que ya viven en Supabase. — ✅ Los 10 de la semilla se localizan por búsqueda en la UI (`20123456789`, `20556677889`, `45678912`, `12345678`, `XA1234567`, "Taller Los Andes", `20987654321`, `70123456`, `20445566778`, `08765432`) y corresponden a los ids `a0000000-…-0001`…`0010` de `third_parties`. Observación: la tabla contiene además una fila ajena a la semilla ("YSRAEL", `id=74bb2b9a-791d-4cb6-8bf3-0b5538089e8f`, creada el 2026-09-17), por lo que el listado muestra 11 activos.
+- [x] El alta de un Tercero con DNI válido y un rol lo inserta en Supabase y sobrevive a un recargado de página. — ✅ Alta "A1 Verificacion Alta" (DNI `11223344`, rol cliente): fila visible, presente tras recargar y en Supabase (`document_number=11223344`, `id=9c1f11d1-b523-498b-896f-9af9d6f75f3a`).
+- [x] La edición del teléfono se refleja en la tabla y persiste tras recargar. — ✅ Teléfono → `+51 999 888 777`: reflejado en la celda Contacto, en Supabase (`phone`) y tras recargar.
+- [x] Desactivar cambia `active` a `false` y el Tercero desaparece del listado por defecto; el toggle "mostrar inactivos" lo vuelve a mostrar y desde ahí se reactiva. — ✅ Desactivar → `active=false` en Supabase y la fila desaparece del listado por defecto; con el toggle reaparece como "Inactivo" con botón Reactivar; al confirmar vuelve a "Activo" (`active=true`).
+- [x] Un DNI de 7 dígitos, un RUC duplicado, cero roles y un correo inválido muestran error por campo y **no** insertan. — ✅ `1234567` → "El DNI debe tener 8 dígitos."; RUC `20123456789` duplicado → "Ya existe un Tercero con ese tipo y número de documento."; cero roles → "Selecciona al menos un rol."; `no-es-correo` → "Introduce un correo válido."; Supabase: 0 filas insertadas por esos intentos.
+- [x] Si se fuerza un duplicado saltándose la validación de cliente, el error `23505` de Postgres se muestra como error en `numeroDocumento`. — ✅ El envío llega a Postgres (el cliente no valida unicidad) y el `23505` de `third_parties_document_unique` se pinta como `.invalid-feedback` sobre el input `numeroDocumento`: "Ya existe un Tercero con ese tipo y número de documento."; sin fila nueva.
+- [x] `SIN_DOCUMENTO` guarda `document_number` como `null`. — ✅ Alta con `SIN_DOCUMENTO` → `document_number = null` en Supabase (`id=f69b3d89-37d0-4cbe-84b4-6c43e18ddd6c`).
+- [x] Un Tercero desactivado conserva su `id`; reactivar no crea un duplicado. — ✅ Reactivar conserva `id=9c1f11d1-b523-498b-896f-9af9d6f75f3a`; `count(*)` de `document_number='11223344'` = 1 (sin duplicado).
+- [x] La cadena de `SUPABASE_SERVICE_ROLE_KEY` no aparece en el bundle cliente (`.next/static`). La caché local de build de Turbopack (`.next/cache/turbopack`) puede contenerla troceada: no se despliega, `.next` está en `.gitignore` y la clave nunca llega al navegador. — ✅ Búsqueda literal de la clave completa (219 chars) sobre todos los archivos de `.next/static` → 0 coincidencias; tampoco aparece la cadena `service_role` en ningún chunk. `.env` ignorado por git (`git check-ignore -v .env` → `.gitignore:34:.env*`).
+- [x] Los datos se ven desde una ventana de incógnito distinta (prueba de que la persistencia es remota y no local). — ✅ `browser.newContext()` (contexto aislado, sin storage compartido) carga `/terceros` con los datos; el `localStorage` de esa pestaña solo contiene `lte-theme`, ninguna clave de terceros. Captura `.playwright-mcp/verify-03-incognito.png`.
+- [x] Sin errores en la consola del navegador en el flujo completo. — ✅ 0 mensajes de error en toda la sesión de Playwright (listar, alta, alta inválida, `SIN_DOCUMENTO`, edición, desactivar, mostrar inactivos, reactivar, búsqueda y filtro por rol).
 
 ## Decisions
 

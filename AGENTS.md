@@ -14,6 +14,15 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - Context7 Usaremos este MCP para traer la documentacionn actualizadaa del framework.
 
+- Supabase MCP remoto (configurado en `~/.config/opencode/opencode.json`) apuntando al proyecto `rxepmxmkfxgcjzvfatbd`. Úsalo para inspeccionar tablas, aplicar migraciones, revisar advisors y leer logs.
+
+## Supabase
+
+- Proyecto remoto: `project_ref` = `rxepmxmkfxgcjzvfatbd`.
+- Credenciales locales en `.env` (plantilla en `.env.template`, variable `SUPABASE_DB_PASSWORD`). **Nunca commitear `.env`** (ya está en `.gitignore`; `.env.template` sí se versiona).
+- Antes de cambiar el esquema, inspecciona las tablas existentes. Aplica DDL con `apply_migration` y consultas con `execute_sql`; tras los cambios corre los advisors (seguridad y rendimiento).
+- Descubre comandos del CLI con `--help`, nunca los adivines: `supabase <grupo> <comando> --help`.
+
 ## Reglas de Diseño
 
 Este proyecto sigue un sistema de diseño definido en un único archivo fuente.
@@ -39,3 +48,22 @@ Todas las decisiones sobre colores, tipografía, espaciado, redondeo de esquinas
 
 - /spec Usaremos esta habilidad para crear especificaciones.
 - /spec-impl Usaremos esta skill para hacer las implementaciones.
+
+## Skills de Supabase
+
+- `supabase`: cárgala para **cualquier** tarea que toque Supabase (Database, Auth, Edge Functions, Storage, Realtime, CLI, MCP, RLS, migraciones, debugging).
+- `supabase-postgres-best-practices`: cárgala **antes** de escribir o modificar cualquier cosa que viva en Postgres (tablas, columnas, índices, RLS, migraciones, funciones, consultas).
+
+## Agent skills
+
+### Issue tracker
+
+Los issues viven en los GitHub Issues de este repo (vía el CLI `gh`). Ver `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Los cinco roles canónicos de triage mapean 1:1 a labels del mismo nombre. Ver `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Contexto único (single-context): un `CONTEXT.md` más `docs/adr/` en la raíz del repo. Ver `docs/agents/domain.md`.

@@ -11,13 +11,20 @@ export const menuItems: MenuNode[] = [
     type: "header",
     text: "GESTIÓN",
   },
-  // Placeholders de sección para specs futuras: sin ruta real aún.
   {
-    type: "item",
-    text: "Clientes",
-    href: "#",
-    icon: "bi-people",
+    type: "group",
+    text: "MAESTRO",
+    icon: "bi-database",
+    children: [
+      {
+        type: "item",
+        text: "CLIENTES Y PROVEEDORES",
+        href: "/terceros",
+        icon: "bi-people",
+      },
+    ],
   },
+  // Placeholders de sección para specs futuras: sin ruta real aún.
   {
     type: "item",
     text: "Facturas",

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Button, Input, Modal, Select } from "@adminlte/react";
+import { actualizarTercero, crearTercero } from "@/lib/terceros/acciones";
 import {
   ETIQUETAS_ROL,
   ETIQUETAS_TIPO_DOCUMENTO,
@@ -14,7 +15,6 @@ import {
   type Tercero,
   type TipoDocumento,
 } from "@/lib/terceros/dominio";
-import { actualizar, crear } from "@/lib/terceros-repo";
 import { alOcultarModal, mostrarModal, ocultarModal } from "./modal-bootstrap";
 
 const MODAL_ID = "tercero-form-modal";
@@ -76,6 +76,7 @@ export function TerceroFormModal({
 }: TerceroFormModalProps) {
   const [form, setForm] = useState<FormTercero>(() => formularioInicial(tercero));
   const [errores, setErrores] = useState<Partial<Record<CampoError, string>>>({});
+  const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
     if (abierto) {
@@ -89,13 +90,20 @@ export function TerceroFormModal({
 
   const sinDocumento = form.tipoDocumento === "SIN_DOCUMENTO";
 
-  const enviar = (evento: FormEvent<HTMLFormElement>) => {
+  const enviar = async (evento: FormEvent<HTMLFormElement>) => {
     evento.preventDefault();
-    const resultado = tercero ? actualizar(tercero.id, form) : crear(form);
+    setGuardando(true);
+    setErrores({});
+
+    const resultado = tercero ? await actualizarTercero(tercero.id, form) : await crearTercero(form);
+
+    setGuardando(false);
+
     if (!resultado.ok) {
       setErrores(resultado.errores);
       return;
     }
+
     onGuardar(resultado.valor);
   };
 
@@ -108,7 +116,13 @@ export function TerceroFormModal({
           <button type="button" className="btn btn-outline-secondary" onClick={onCerrar}>
             Cancelar
           </button>
-          <Button theme="primary" type="submit" form={FORM_ID} label="Guardar" />
+          <Button
+            theme="primary"
+            type="submit"
+            form={FORM_ID}
+            label={guardando ? "Guardando…" : "Guardar"}
+            disabled={guardando}
+          />
         </>
       }
     >

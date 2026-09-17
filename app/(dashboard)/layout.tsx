@@ -4,7 +4,7 @@ import { DashboardLayout } from "@adminlte/react";
 import { cerrarSesion } from "@/lib/auth/acciones";
 import { ETIQUETAS_ROL } from "@/lib/auth/permisos";
 import { requerirUsuario } from "@/lib/auth/sesion";
-import { menuItems } from "@/lib/menu";
+import { construirMenu } from "@/lib/menu";
 import "@adminlte/react/css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "../adminlte-theme.css";
@@ -23,7 +23,7 @@ export default async function DashboardRouteLayout({
   return (
     <>
       <DashboardLayout
-        menuItems={menuItems}
+        menuItems={construirMenu(usuario.rol)}
         logo={<span>Gestión de Pagos</span>}
         user={{
           name: usuario.nombre,

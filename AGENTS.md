@@ -39,3 +39,17 @@ Todas las decisiones sobre colores, tipografía, espaciado, redondeo de esquinas
 
 - /spec Usaremos esta habilidad para crear especificaciones.
 - /spec-impl Usaremos esta skill para hacer las implementaciones.
+
+## Agent skills
+
+### Issue tracker
+
+Los issues viven en los GitHub Issues de este repo (vía el CLI `gh`). Ver `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Los cinco roles canónicos de triage mapean 1:1 a labels del mismo nombre. Ver `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Contexto único (single-context): un `CONTEXT.md` más `docs/adr/` en la raíz del repo. Ver `docs/agents/domain.md`.

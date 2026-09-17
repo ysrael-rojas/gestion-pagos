@@ -1,6 +1,6 @@
 "use server";
 
-import { crearClienteSupabase } from "@/lib/supabase/server";
+import { crearClienteAdmin } from "@/lib/supabase/server";
 import {
   normalizarCampos,
   validar,
@@ -12,7 +12,7 @@ import {
 import { aFila, aTercero, erroresDesdePostgrest } from "@/lib/terceros/mapeo";
 
 export async function listarTerceros(): Promise<Tercero[]> {
-  const supabase = crearClienteSupabase();
+  const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
     .select("*")
@@ -33,7 +33,7 @@ export async function crearTercero(datos: DatosTercero): Promise<Resultado<Terce
     return { ok: false, errores };
   }
 
-  const supabase = crearClienteSupabase();
+  const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
     .insert(aFila(normalizado))
@@ -57,7 +57,7 @@ export async function actualizarTercero(
     return { ok: false, errores };
   }
 
-  const supabase = crearClienteSupabase();
+  const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
     .update(aFila({ ...normalizado, activo: datos.activo }))
@@ -73,7 +73,7 @@ export async function actualizarTercero(
 }
 
 async function cambiarActivo(id: string, activo: boolean): Promise<Resultado<Tercero>> {
-  const supabase = crearClienteSupabase();
+  const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
     .update({ active: activo })

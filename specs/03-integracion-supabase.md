@@ -128,7 +128,7 @@ La validación de `lib/terceros/dominio.ts` sigue ejecutándose en el cliente **
 - [ ] Si se fuerza un duplicado saltándose la validación de cliente, el error `23505` de Postgres se muestra como error en `numeroDocumento`.
 - [ ] `SIN_DOCUMENTO` guarda `document_number` como `null`.
 - [ ] Un Tercero desactivado conserva su `id`; reactivar no crea un duplicado.
-- [ ] La cadena de `SUPABASE_SERVICE_ROLE_KEY` no aparece en ningún archivo de `.next` (verificación con búsqueda en el bundle).
+- [ ] La cadena de `SUPABASE_SERVICE_ROLE_KEY` no aparece en el bundle cliente (`.next/static`). La caché local de build de Turbopack (`.next/cache/turbopack`) puede contenerla troceada: no se despliega, `.next` está en `.gitignore` y la clave nunca llega al navegador.
 - [ ] Los datos se ven desde una ventana de incógnito distinta (prueba de que la persistencia es remota y no local).
 - [ ] Sin errores en la consola del navegador en el flujo completo.
 
@@ -146,6 +146,7 @@ La validación de `lib/terceros/dominio.ts` sigue ejecutándose en el cliente **
 - **No:** Auth/login, RLS y políticas por `auth.uid()`. Spec propia.
 - **No:** filtros y paginación en el servidor. Spec futura, si el volumen lo pide.
 - **No:** migrar los datos de `localStorage`.
+- **Sí:** aceptar que la caché de build de Turbopack (`.next/cache/turbopack`, activada por defecto en Next 16.3) guarde la `service_role` key troceada. No se despliega, `.next` está en `.gitignore` y el bundle cliente queda limpio; el criterio se mide sobre `.next/static`. La alternativa sería `experimental.turbopackFileSystemCacheForBuild: false`, a costa de builds más lentos.
 
 ## Risks
 

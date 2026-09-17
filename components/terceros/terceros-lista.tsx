@@ -5,13 +5,11 @@ import { Badge, Button, Card, Pagination, Table, type TableColumn } from "@admin
 import {
   ETIQUETAS_ROL,
   ETIQUETAS_TIPO_DOCUMENTO,
-  desactivar,
-  listar,
-  reactivar,
   type FiltrosTerceros,
   type RolTercero,
   type Tercero,
-} from "@/lib/terceros-repo";
+} from "@/lib/terceros/dominio";
+import { desactivar, listar, reactivar } from "@/lib/terceros-repo";
 import { TerceroConfirmModal } from "./tercero-confirm-modal";
 import { TerceroFormModal } from "./tercero-form-modal";
 

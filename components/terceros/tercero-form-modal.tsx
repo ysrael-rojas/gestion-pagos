@@ -8,14 +8,13 @@ import {
   ETIQUETAS_TIPO_DOCUMENTO,
   ROLES,
   TIPOS_DOCUMENTO,
-  actualizar,
-  crear,
   etiquetaNombre,
   type CampoError,
   type RolTercero,
   type Tercero,
   type TipoDocumento,
-} from "@/lib/terceros-repo";
+} from "@/lib/terceros/dominio";
+import { actualizar, crear } from "@/lib/terceros-repo";
 import { alOcultarModal, mostrarModal, ocultarModal } from "./modal-bootstrap";
 
 const MODAL_ID = "tercero-form-modal";

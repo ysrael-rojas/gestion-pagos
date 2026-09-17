@@ -1,8 +1,10 @@
 # Gestión de Pagos
 
-Aplicación interna para gestionar las relaciones comerciales y los pagos de una empresa peruana. Este contexto cubre a las personas y organizaciones con las que la empresa opera.
+Aplicación interna para gestionar las relaciones comerciales y los pagos de una empresa peruana. Este contexto cubre a las organizaciones y personas con las que la empresa opera, y a las personas de la empresa que acceden al sistema.
 
 ## Language
+
+### Terceros
 
 **Tercero**:
 Persona natural o jurídica con la que la empresa se relaciona comercialmente, sea como cliente, como proveedor o como ambos.
@@ -10,7 +12,7 @@ _Avoid_: Cliente, Proveedor, Contraparte, Entidad, Contacto
 
 **Rol de tercero**:
 Papel que un Tercero cumple frente a la empresa. Un Tercero tiene al menos un rol.
-_Avoid_: Tipo, categoría, condición
+_Avoid_: Tipo, categoría, condición, Rol de usuario
 
 **Cliente**:
 Rol de un Tercero al que la empresa le vende.
@@ -39,3 +41,17 @@ _Avoid_: Dirección, domicilio
 **Tercero activo**:
 Tercero que mantiene vigente su relación comercial con la empresa. La desactivación es un borrado lógico: el Tercero deja de estar disponible para nuevas operaciones pero conserva su historial.
 _Avoid_: Habilitado, vigente
+
+### Usuarios
+
+**Usuario**:
+Persona que accede al sistema con credenciales propias. No es un Tercero.
+_Avoid_: Cuenta, Empleado, Login, Perfil, Operador
+
+**Rol de usuario**:
+Conjunto fijo de Permisos que un Usuario tiene en el sistema. Cada Usuario tiene exactamente uno.
+_Avoid_: Rol, perfil, nivel, Rol de tercero
+
+**Permiso**:
+Facultad concreta sobre una parte del sistema: ver el dashboard, gestionar Terceros o gestionar Usuarios.
+_Avoid_: Privilegio, acceso

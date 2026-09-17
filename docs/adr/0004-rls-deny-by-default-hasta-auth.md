@@ -13,4 +13,6 @@ La alternativa —RLS con políticas permisivas para `anon`/`authenticated`— d
 
 **Consequences**
 
-El advisor de Supabase marca `rls_enabled_no_policy` como INFO sobre esta tabla. Es intencional y esperado: se resolverá cuando lleguen las políticas. Hasta entonces, cualquier acceso desde el frontend fallará, lo cual es el comportamiento deseado.
+El advisor de Supabase marca `rls_enabled_no_policy` como INFO sobre esta tabla. Es intencional y esperado: se mantiene como estado final, no transitorio (ver ADR-0005). Cualquier acceso desde el frontend falla, lo cual es el comportamiento deseado.
+
+**Nota (2026-09-17):** la promesa de "añadir las políticas de acceso en la spec de Auth" queda revisada por [ADR-0005](./0005-autorizacion-en-la-dal-no-en-rls.md). La decisión de esta ADR —RLS activo y sin políticas hasta que exista autenticación— se cumplió y se conserva; lo que cambia es lo que viene después.

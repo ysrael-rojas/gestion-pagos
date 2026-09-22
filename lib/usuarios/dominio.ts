@@ -94,17 +94,25 @@ export function validarEdicion(
   return errores;
 }
 
-export function esUltimoAdminActivo(objetivo: Usuario, adminsActivos: number): boolean {
+export type PerfilGuardable = Pick<Usuario, "id" | "rol" | "activo">;
+
+export function esUltimoAdminActivo(
+  objetivo: Pick<Usuario, "rol" | "activo">,
+  adminsActivos: number,
+): boolean {
   return objetivo.rol === "administrador" && objetivo.activo && adminsActivos === 1;
 }
 
-export function puedeCambiarRol(actor: Usuario, objetivo: Usuario): boolean {
+export function puedeCambiarRol(
+  actor: Pick<Usuario, "id">,
+  objetivo: Pick<Usuario, "id">,
+): boolean {
   return actor.id !== objetivo.id;
 }
 
 export function puedeCambiarEstado(
-  actor: Usuario,
-  objetivo: Usuario,
+  actor: Pick<Usuario, "id">,
+  objetivo: PerfilGuardable,
   adminsActivos: number,
 ): boolean {
   if (actor.id === objetivo.id) {

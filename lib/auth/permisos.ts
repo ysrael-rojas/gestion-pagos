@@ -13,6 +13,7 @@ export const PERMISOS = [
   "ver_dashboard",
   "gestionar_terceros",
   "gestionar_usuarios",
+  "gestionar_compras",
 ] as const;
 
 export type Permiso = (typeof PERMISOS)[number];
@@ -23,8 +24,13 @@ export const ETIQUETAS_ROL: Record<RolUsuario, string> = {
 };
 
 export const PERMISOS_POR_ROL: Record<RolUsuario, readonly Permiso[]> = {
-  administrador: ["ver_dashboard", "gestionar_terceros", "gestionar_usuarios"],
-  operador: ["ver_dashboard", "gestionar_terceros"],
+  administrador: [
+    "ver_dashboard",
+    "gestionar_terceros",
+    "gestionar_usuarios",
+    "gestionar_compras",
+  ],
+  operador: ["ver_dashboard", "gestionar_terceros", "gestionar_compras"],
 };
 
 export function tienePermiso(rol: RolUsuario, permiso: Permiso): boolean {

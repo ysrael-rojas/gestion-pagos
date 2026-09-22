@@ -38,6 +38,27 @@ const menuItems: NodoMenu[] = [
         icon: "bi-people",
         permiso: "gestionar_terceros",
       },
+      {
+        type: "item",
+        text: "TIPOS DE COMPROBANTE",
+        href: "/tipos-comprobante",
+        icon: "bi-tags",
+        permiso: "gestionar_compras",
+      },
+    ],
+  },
+  {
+    type: "group",
+    text: "COMPRAS",
+    icon: "bi-cart",
+    children: [
+      {
+        type: "item",
+        text: "COMPROBANTES DE COMPRA",
+        href: "/comprobantes",
+        icon: "bi-receipt",
+        permiso: "gestionar_compras",
+      },
     ],
   },
   // Placeholders de sección para specs futuras: sin ruta real aún.

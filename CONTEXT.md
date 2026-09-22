@@ -53,5 +53,27 @@ Conjunto fijo de Permisos que un Usuario tiene en el sistema. Cada Usuario tiene
 _Avoid_: Rol, perfil, nivel, Rol de tercero
 
 **Permiso**:
-Facultad concreta sobre una parte del sistema: ver el dashboard, gestionar Terceros o gestionar Usuarios.
+Facultad concreta sobre una parte del sistema: ver el dashboard, gestionar Terceros, gestionar Usuarios o gestionar Compras.
 _Avoid_: Privilegio, acceso
+
+### Compras
+
+**Comprobante de compra**:
+Documento que emite un Proveedor y que la empresa registra como origen de una obligación de pago. Es el hecho que la spec de pagos consumirá después.
+_Avoid_: Factura, documento, gasto, compra
+
+**Tipo de comprobante**:
+Clasificación del Comprobante de compra según el documento emitido: Factura, Boleta, Recibo por honorarios, Ticket o Nota de crédito. Es un catálogo gestionable por el usuario, no un enum nativo (ver ADR-0007).
+_Avoid_: Clase, categoría, tipo de documento
+
+**Condición de pago**:
+Forma acordada de saldar un Comprobante de compra: Contado o Crédito. Con Crédito el Comprobante exige una Fecha de vencimiento; con Contado no la tiene.
+_Avoid_: Tipo de pago, modalidad, plazo
+
+**IGV**:
+Impuesto General a las Ventas incluido en un Comprobante de compra, derivado como la diferencia entre Total y Subtotal. No se escribe a mano ni se calcula como una tasa fija.
+_Avoid_: Impuesto, IVA
+
+**Comprobante de compra activo**:
+Comprobante de compra que sigue vigente para la operación. La desactivación es un borrado lógico: deja de estar disponible para nuevas operaciones pero conserva su historial.
+_Avoid_: Habilitado, vigente

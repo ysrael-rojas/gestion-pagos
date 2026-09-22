@@ -110,10 +110,6 @@ body {
   letter-spacing: 0;
 }
 
-.app-header .user-menu {
-  display: none;
-}
-
 .app-header .btn.rounded-pill {
   border-radius: 4px !important;
 }

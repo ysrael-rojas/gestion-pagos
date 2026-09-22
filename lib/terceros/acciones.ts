@@ -1,6 +1,7 @@
 "use server";
 
-import { crearClienteSupabase } from "@/lib/supabase/server";
+import { requerirPermiso, requerirUsuario } from "@/lib/auth/sesion";
+import { crearClienteAdmin } from "@/lib/supabase/server";
 import {
   normalizarCampos,
   validar,
@@ -12,7 +13,9 @@ import {
 import { aFila, aTercero, erroresDesdePostgrest } from "@/lib/terceros/mapeo";
 
 export async function listarTerceros(): Promise<Tercero[]> {
-  const supabase = crearClienteSupabase();
+  await requerirUsuario();
+
+  const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
     .select("*")
@@ -27,13 +30,15 @@ export async function listarTerceros(): Promise<Tercero[]> {
 }
 
 export async function crearTercero(datos: DatosTercero): Promise<Resultado<Tercero>> {
+  await requerirPermiso("gestionar_terceros");
+
   const normalizado = normalizarCampos(datos);
   const errores = validar(normalizado, []);
   if (Object.keys(errores).length > 0) {
     return { ok: false, errores };
   }
 
-  const supabase = crearClienteSupabase();
+  const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
     .insert(aFila(normalizado))
@@ -51,13 +56,15 @@ export async function actualizarTercero(
   id: string,
   datos: DatosActualizacion,
 ): Promise<Resultado<Tercero>> {
+  await requerirPermiso("gestionar_terceros");
+
   const normalizado = normalizarCampos(datos);
   const errores = validar(normalizado, []);
   if (Object.keys(errores).length > 0) {
     return { ok: false, errores };
   }
 
-  const supabase = crearClienteSupabase();
+  const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
     .update(aFila({ ...normalizado, activo: datos.activo }))
@@ -73,7 +80,7 @@ export async function actualizarTercero(
 }
 
 async function cambiarActivo(id: string, activo: boolean): Promise<Resultado<Tercero>> {
-  const supabase = crearClienteSupabase();
+  const supabase = crearClienteAdmin();
   const { data, error } = await supabase
     .from("third_parties")
     .update({ active: activo })
@@ -89,9 +96,13 @@ async function cambiarActivo(id: string, activo: boolean): Promise<Resultado<Ter
 }
 
 export async function desactivarTercero(id: string): Promise<Resultado<Tercero>> {
+  await requerirPermiso("gestionar_terceros");
+
   return cambiarActivo(id, false);
 }
 
 export async function reactivarTercero(id: string): Promise<Resultado<Tercero>> {
+  await requerirPermiso("gestionar_terceros");
+
   return cambiarActivo(id, true);
 }

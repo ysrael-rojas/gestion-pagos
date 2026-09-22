@@ -56,6 +56,33 @@ export type Database = {
         }
         Relationships: []
       }
+      users: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          role: Database["public"]["Enums"]["user_role"]
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id: string
+          name: string
+          role: Database["public"]["Enums"]["user_role"]
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          role?: Database["public"]["Enums"]["user_role"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -66,6 +93,7 @@ export type Database = {
     Enums: {
       document_type: "dni" | "ruc" | "foreigner_card" | "no_document"
       third_party_role: "customer" | "supplier"
+      user_role: "administrador" | "operador"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -195,6 +223,7 @@ export const Constants = {
     Enums: {
       document_type: ["dni", "ruc", "foreigner_card", "no_document"],
       third_party_role: ["customer", "supplier"],
+      user_role: ["administrador", "operador"],
     },
   },
 } as const

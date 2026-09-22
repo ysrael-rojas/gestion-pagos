@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@adminlte/react": "0.6.1",
+    "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.116.0",
     "bootstrap-icons": "^1.13.1",
     "next": "16.3.4",

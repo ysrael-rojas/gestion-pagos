@@ -1,18 +1,42 @@
 import type { ReactNode } from "react";
 import Script from "next/script";
 import { DashboardLayout } from "@adminlte/react";
-import { menuItems } from "@/lib/menu";
+import { cerrarSesion } from "@/lib/auth/acciones";
+import { ETIQUETAS_ROL } from "@/lib/auth/permisos";
+import { requerirUsuario } from "@/lib/auth/sesion";
+import { construirMenu } from "@/lib/menu";
 import "@adminlte/react/css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "../adminlte-theme.css";
 
-export default function DashboardRouteLayout({ children }: { children: ReactNode }) {
+// Imagen transparente: el Usuario aún no tiene avatar propio.
+const IMAGEN_TRANSPARENTE =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+export default async function DashboardRouteLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const usuario = await requerirUsuario();
+
   return (
     <>
       <DashboardLayout
-        menuItems={menuItems}
+        menuItems={construirMenu(usuario.rol)}
         logo={<span>Gestión de Pagos</span>}
-        user={{ name: "", image: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" }}
+        user={{
+          name: usuario.nombre,
+          role: ETIQUETAS_ROL[usuario.rol],
+          image: IMAGEN_TRANSPARENTE,
+        }}
+        topbarEnd={
+          <form action={cerrarSesion}>
+            <button className="btn btn-outline-secondary" type="submit">
+              Cerrar sesión
+            </button>
+          </form>
+        }
         fixedHeader
         fixedSidebar
         colorModeToggle={false}

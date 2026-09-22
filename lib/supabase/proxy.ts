@@ -19,6 +19,12 @@ function leerCredencialesPublicas(): { url: string; clavePublicable: string } {
  *
  * No consulta la base de datos: solo valida el JWT con `getClaims()`. La
  * comprobación real (perfil y `active`) vive en la DAL, junto al dato.
+ *
+ * Por eso aquí **no** se redirige `/login` a `/`: un JWT vigente no implica un
+ * Usuario utilizable (`active = false` o sin perfil). La redirección del login
+ * la decide la propia página con la DAL, que sí conoce el perfil. Si el proxy
+ * redirigiera `/login` a `/` con solo el JWT, la DAL devolvería `/` a `/login`
+ * y se entraría en un bucle de redirecciones.
  */
 export async function updateSession(request: NextRequest) {
   const { url, clavePublicable } = leerCredencialesPublicas();
@@ -57,10 +63,6 @@ export async function updateSession(request: NextRequest) {
 
   if (!hayUsuario && !esLogin) {
     return redirigirA(request, "/login", supabaseResponse);
-  }
-
-  if (hayUsuario && esLogin) {
-    return redirigirA(request, "/", supabaseResponse);
   }
 
   return supabaseResponse;

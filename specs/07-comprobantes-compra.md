@@ -1,6 +1,6 @@
 # SPEC 07 — Comprobantes de compra y catálogo de Tipos de comprobante
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 02, SPEC 05
 > **Fecha:** 2026-09-22
 > **Objetivo:** Añadir el registro de Comprobantes de compra (documentos que emite un Proveedor) en `/comprobantes` y el catálogo gestionable de Tipos de comprobante en `/tipos-comprobante`, con CRUD completo en modales y datos ficticios persistidos en `localStorage`, sin Supabase.
@@ -150,25 +150,25 @@ Semilla: `Factura`, `Boleta`, `Recibo por honorarios`, `Ticket`, `Nota de crédi
 
 ## Acceptance criteria
 
-- [ ] `npm run build`, `npm run lint` y `npx tsc --noEmit` terminan sin errores.
-- [ ] Existen `app/(dashboard)/comprobantes/page.tsx`, `app/(dashboard)/tipos-comprobante/page.tsx`, los cuatro ficheros de `lib/{comprobantes,tipos-comprobante}/` y los seis componentes de `components/{comprobantes,tipos-comprobante}/`.
-- [ ] El menú muestra `COMPRAS` → `COMPROBANTES DE COMPRA` y `MAESTRO` → `TIPOS DE COMPROBANTE` con el Usuario `administrador`, y con el `operador` también (tiene el permiso); el ítem `Facturas` sigue intacto.
-- [ ] `/tipos-comprobante` lista los cinco tipos sembrados con columna Estado.
-- [ ] El administrador da de alta un tipo nuevo, aparece en el listado y queda disponible en el `select` del formulario de comprobante sin recargar.
-- [ ] Un tipo con nombre repetido muestra el error de campo y no crea nada.
-- [ ] Desactivar un tipo lo marca Inactivo y lo retira del `select` de altas nuevas, sin romper los comprobantes que ya lo usaban.
-- [ ] `/comprobantes` lista los ocho comprobantes sembrados con las diez columnas, incluido el inactivo.
-- [ ] Los cinco filtros funcionan: búsqueda por Proveedor y por Nro, Tipo, Condición, rango de fechas de emisión y "mostrar inactivos".
-- [ ] Alta de un comprobante desde la UI: aparece en el listado y **persiste tras recargar la página**.
-- [ ] Editar un comprobante persiste en `localStorage` y se refleja en el listado tras recargar.
-- [ ] Al escribir Subtotal y Total, el IGV se muestra como la diferencia y se recalcula al cambiar cualquiera de los dos.
-- [ ] Un Total menor que el Subtotal muestra "El total no puede ser menor que el subtotal." y no guarda.
-- [ ] Con Condición `contado` el campo Vencimiento no aparece; con `credito` es obligatorio y una fecha anterior a la emisión da error.
-- [ ] Un Nro repetido para el mismo tipo y proveedor muestra el error de terna y no crea nada.
-- [ ] Desactivar un comprobante lo marca Inactivo; reactivarlo lo devuelve a Activo.
-- [ ] No existe ningún control de borrado físico, ni en comprobantes ni en el catálogo.
-- [ ] Los modales de alta, edición y confirmación de ambas pantallas abren y cierran, y los errores por campo se muestran junto al campo correspondiente.
-- [ ] Consola del navegador sin errores en `/comprobantes` y `/tipos-comprobante`.
+- [x] `npm run build`, `npm run lint` y `npx tsc --noEmit` terminan sin errores. — ✅ `next build` compila y genera `/comprobantes` y `/tipos-comprobante` (ambas `ƒ`); ESLint y `tsc --noEmit` sin salida.
+- [x] Existen `app/(dashboard)/comprobantes/page.tsx`, `app/(dashboard)/tipos-comprobante/page.tsx`, los cuatro ficheros de `lib/{comprobantes,tipos-comprobante}/` y los seis componentes de `components/{comprobantes,tipos-comprobante}/`. — ✅ Los 12 ficheros listados por Glob.
+- [x] El menú muestra `COMPRAS` → `COMPROBANTES DE COMPRA` y `MAESTRO` → `TIPOS DE COMPROBANTE` con el Usuario `administrador`, y con el `operador` también (tiene el permiso); el ítem `Facturas` sigue intacto. — ✅ `nav[aria-label="Main navigation"].innerText` con admin: `MAESTRO → CLIENTES Y PROVEEDORES · TIPOS DE COMPROBANTE · COMPRAS → COMPROBANTES DE COMPRA · Facturas · Conciliación · ADMINISTRACIÓN`; con operador: los mismos ítems de Compras y sin `ADMINISTRACIÓN`/`USUARIOS`. `lib/menu.ts:41-62`.
+- [x] `/tipos-comprobante` lista los cinco tipos sembrados con columna Estado. — ✅ Tabla: `Nombre · Estado · Acciones` con `Factura, Boleta, Recibo por honorarios, Ticket, Nota de crédito`, todos `Activo`. Captura `.playwright-mcp/verify-07-tipos-listado.png`.
+- [x] El administrador da de alta un tipo nuevo, aparece en el listado y queda disponible en el `select` del formulario de comprobante sin recargar. — ✅ Alta de «Guía de remisión» → 6.ª fila en el listado; `select[name="tipoComprobanteId"]` la ofrece sin recargar. Captura `.playwright-mcp/verify-07-tipos-tras-alta.png`.
+- [x] Un tipo con nombre repetido muestra el error de campo y no crea nada. — ✅ «factura» → `Ya existe un tipo de comprobante con ese nombre.` junto al campo; `table tbody tr` sigue en 5.
+- [x] Desactivar un tipo lo marca Inactivo y lo retira del `select` de altas nuevas, sin romper los comprobantes que ya lo usaban. — ✅ `Ticket` → `Inactivo`; el `select` de alta deja de ofrecerlo; el comprobante `T001-00000912` sigue mostrando `Ticket`. Al editar ese comprobante, `Ticket` vuelve al `select` como opción seleccionada. Reactivado después.
+- [x] `/comprobantes` lista los ocho comprobantes sembrados con las diez columnas, incluido el inactivo. — ✅ Con «mostrar inactivos»: 8 filas y columnas `Fecha emisión · Tipo · Nro · Proveedor · Subtotal · IGV · Total · Condición · Vencimiento · Estado` (+ Acciones); el inactivo es `B001-00000480 / Transportes Rápidos del Sur S.R.L.`. Captura `.playwright-mcp/verify-07-comprobantes-listado.png`.
+- [x] Los cinco filtros funcionan: búsqueda por Proveedor y por Nro, Tipo, Condición, rango de fechas de emisión y "mostrar inactivos". — ✅ «Textiles» → 1 fila (`Textiles del Norte S.A.`); `F001-00001240` → 1 fila; Tipo `Ticket` → 1 fila; Condición `Crédito` → 3 filas; emisión 2026-02-01…2026-02-28 → 3 filas; «mostrar inactivos» → de 7 a 8.
+- [x] Alta de un comprobante desde la UI: aparece en el listado y **persiste tras recargar la página**. — ✅ `F001-00009999` (Factura, Distribuidora San Martín, `S/ 100.00`/`S/ 18.00`/`S/ 118.00`, Crédito, vence 01/05/2026) sigue en el listado tras `page.goto('/comprobantes')`.
+- [x] Editar un comprobante persiste en `localStorage` y se refleja en el listado tras recargar. — ✅ El modal de edición precarga el comprobante; al cambiar Proveedor y Total, tras recargar la fila muestra `— editada` y `S/ 136.00` de IGV.
+- [x] Al escribir Subtotal y Total, el IGV se muestra como la diferencia y se recalcula al cambiar cualquiera de los dos. — ✅ `input[name="igv"].value`: `S/ 18.00` con `100/118` y `S/ 100.00` con `100/200`.
+- [x] Un Total menor que el Subtotal muestra "El total no puede ser menor que el subtotal." y no guarda. — ✅ Con `Subtotal=100`, `Total=50` el modal muestra ese texto junto al campo Total y permanece abierto; no se añade fila.
+- [x] Con Condición `contado` el campo Vencimiento no aparece; con `credito` es obligatorio y una fecha anterior a la emisión da error. — ✅ Por defecto (Contado) no hay `input[name="fechaVencimiento"]`; con Crédito aparece, y `2026-03-01` sobre emisión `2026-04-01` da `El vencimiento no puede ser anterior a la emisión.`
+- [x] Un Nro repetido para el mismo tipo y proveedor muestra el error de terna y no crea nada. — ✅ Factura + Distribuidora San Martín + `F001-00001234` → `Ya existe un comprobante con ese tipo, proveedor y número.`
+- [x] Desactivar un comprobante lo marca Inactivo; reactivarlo lo devuelve a Activo. — ✅ `F001-00009999`: `Inactivo` tras desactivar (con «mostrar inactivos»), `Activo` tras reactivar. El modal de confirmación muestra el copy exacto del spec.
+- [x] No existe ningún control de borrado físico, ni en comprobantes ni en el catálogo. — ✅ El DOM solo expone botones `Editar`/`Desactivar`/`Reactivar`; cero coincidencias de `/eliminar|borrar|delete|trash/i`.
+- [x] Los modales de alta, edición y confirmación de ambas pantallas abren y cierran, y los errores por campo se muestran junto al campo correspondiente. — ✅ Modales `Nuevo tipo`/`Editar tipo`, `Nuevo comprobante`/`Editar comprobante` y los de confirmación abren y cierran; los mensajes de validación se renderizan junto a su campo (`.invalid-feedback`).
+- [x] Consola del navegador sin errores en `/comprobantes` y `/tipos-comprobante`. — ✅ `playwright_browser_console_messages(level=error, all=true)`: 0 errores en ambas rutas.
 
 ## Decisions
 

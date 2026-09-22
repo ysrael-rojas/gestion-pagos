@@ -1,6 +1,6 @@
 # SPEC 06 — Administración de usuarios (`/usuarios`)
 
-> **Estado:** Borrador
+> **Estado:** Aprobado
 > **Depende de:** SPEC 05
 > **Fecha:** 2026-09-17
 > **Objetivo:** Añadir la pantalla `/usuarios`, reservada al rol `administrador`, para dar de alta Usuarios, editar su nombre y su rol, y activarlos o desactivarlos, reutilizando el patrón de listado y modales de Terceros.

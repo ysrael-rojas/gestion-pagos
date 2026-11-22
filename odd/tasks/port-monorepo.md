@@ -572,3 +572,43 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   en el `README.md`. Arreglarlo bien pide `@nestjs/cli` (`nest start --watch`) o un runner equivalente:
   es una dependencia nueva, no un detalle. `turbo.json` ya declara `env` para `dev` (hecho en esta
   sesión) para que el modo strict no borre `DATABASE_URL`.
+
+## Estado para retomar (handoff)
+
+**Dónde está todo.** PRs #1 y #2 mergeados a `main`; `main` es el tronco verde (CI en 3 jobs).
+Rama única, limpia, sincronizada. Documento de operación en `docs/operacion/`, contrato de variables
+en `.github/CI.md`, README en la raíz.
+
+**Qué sigue: T5c.** Los seis verticales restantes (~20.000 líneas). Un vertical por vez, una rama, un
+PR, con e2e propio. Orden propuesto: **clientes** primero (ventas y compras dependen de sus entidades),
+después cajas-bancos (arrastra `ensureDefaultSettings`, ver L67), y al final ventas/compras, que son
+los más entrelazados porque arrastran comprobantes y saldos.
+
+**Deudas abiertas, con su referencia.**
+- L77 — el API acepta `POST /api/auth/sign-up/email` de cualquiera: "solo el dueño crea cuentas" es
+  restricción de UI. Cerrarlo pide fixtures SQL en los tests en vez del endpoint real.
+- L78 — `apps/api` `dev` compila en watch pero no arranca el servidor; `pnpm dev` no levanta el API.
+- L67 — `ensureDefaultSettings()` (cajas-bancos) sin portar; sin cubrir: pestañas de filtro, diálogo de
+  asignación, impresión del recibo, concurrencia.
+- L46c — `authenticated` conserva DML sobre `payment_balance` y `voucher_balance` (inocuo, sobra).
+- L20 — `voucher_series` vacía: en Supabase la creaba la app.
+- L65 — `GET /payments` cambió de contrato respecto de T4 (sin consumidor viejo).
+- `receipt_sequence` en 104 en `gestion_pagos_dev` por pagos reales de los tests.
+
+**Entorno de esta máquina (esto cuesta horas si se redescubre).**
+- `docker` y `gh` **no están en el PATH** de la shell de Pi y hay que invocarlos por ruta absoluta:
+  `/c/Users/Lenovo/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe` y
+  `/c/Program Files/GitHub CLI/gh.exe`.
+- `gh` necesita `GH_CONFIG_DIR="C:/Users/Lenovo/AppData/Roaming/GitHub CLI"` porque `APPDATA` está
+  redirigido al home de Gentle Shell.
+- `/tmp` no existe: usar `$PWD/.cache/tmp`.
+- `pnpm` sólo se alcanza vía `corepack`; Turborepo además necesita un binario en el PATH, así que hay
+  un shim en `.cache/bin`. Con eso: `COREPACK_HOME="$PWD/.cache/corepack" PATH="$PWD/.cache/bin:$PATH"`.
+- **Los comandos de entrega van solos**: un `git push` encadenado con `cd … &&` hace que el guard de
+  RDD no ejecute *ninguno* de los comandos del encadenado (L56/L63).
+- RDD está **apagado sólo en este clon** (`review mode disable --scope clone`) por el estado nativo
+  inválido de L55; global sigue `on`. Reversible con `review mode enable --scope clone`.
+- Chromium del e2e en `.cache/ms-playwright` (744 MB, gitignored). El e2e corre en
+  `E2E_WEB_PORT`/`E2E_API_PORT` (3000/3001 por defecto); si esos puertos están tomados, cambiarlos.
+- Contraseña de la base de dev: la de `compose.yaml` + el archivo de entorno del perfil; el
+  `DATABASE_URL` usado en esta sesión es `postgresql://dev_user:…@localhost:5434/gestion_pagos_dev`.

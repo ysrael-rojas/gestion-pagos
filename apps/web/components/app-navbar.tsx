@@ -10,6 +10,8 @@
 // de navegacion.
 import {
   Activity,
+  ArrowDownCircle,
+  ArrowUpCircle,
   Building2,
   Database,
   FileText,
@@ -18,7 +20,6 @@ import {
   Receipt,
   Settings,
   ShoppingCart,
-  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -52,6 +53,10 @@ type PendingGroup = {
 /** Rutas que existen hoy en `apps/web`. */
 const LINKS: NavLink[] = [
   { label: "Resumen", href: "/", icon: LayoutDashboard },
+  // Vertical de pagos (T5b2). En el origen era un desplegable "Pagos" con dos entradas; aca se
+  // enlazan las dos directamente, sin cambiar el mapa de la app ni inventar rutas.
+  { label: "Ingresos", href: "/pagos/ingresos", icon: ArrowDownCircle },
+  { label: "Egresos", href: "/pagos/egresos", icon: ArrowUpCircle },
   { label: "Estado del API", href: "/health", icon: Activity },
 ];
 
@@ -65,7 +70,6 @@ const PENDING_GROUPS: PendingGroup[] = [
     modules: ["/notas/credito", "/notas/debito", "/retenciones"],
   },
   { label: "Maestro", icon: Database, modules: ["/clientes/listado"] },
-  { label: "Pagos", icon: Wallet, modules: ["/pagos/ingresos", "/pagos/egresos"] },
   {
     label: "Caja y bancos",
     icon: Landmark,

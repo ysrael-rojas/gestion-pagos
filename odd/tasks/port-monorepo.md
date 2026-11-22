@@ -496,3 +496,58 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   origen por entorno.
 - L63 (proceso, otra vez): un `git push` encadenado con `cd && cat >> … && git commit` hace que el
   guard **no ejecute ninguno** de los comandos anteriores. Los de entrega van solos, siempre.
+- L64 (T5b2 entregada, delegada): vertical `pagos` completo — 13 componentes (3.484 líneas), 3 piezas
+  de `components/shared`, 2 providers, 4 libs, 4 rutas y la entrada `Pagos` del navbar. La capa de
+  datos pasa por un **BFF same-origin** (`app/api/backend/[...path]`) porque el API no habilita CORS y
+  la cookie es HttpOnly; el BFF reenvía sólo un prefijo permitido y deja cuerpo y status intactos
+  (`GET /api/backend/auth/session` → 404, no proxya). `types.ts` bajó de 130 a 44 líneas porque los
+  tipos de dominio se re-exportan del contrato del API en vez de redeclararse.
+- L65 (T5b1 ampliada, autorizada): 4 endpoints de catálogo que el formulario necesitaba y no existían
+  (`/entities`, `/cash-accounts`, `/payment-methods`, `/receipt-categories`) + `POST /catalogs/ensure`.
+  **Desviación deliberada**: el origen sembraba catálogos desde dentro de un GET (abrir el formulario
+  insertaba 3 métodos y 13 categorías). Se conservó el efecto y se movió el mecanismo: lecturas puras
+  y un POST idempotente explícito, con los mismos códigos y nombres que `seed-demo.sql`. Probado: 3+13
+  la primera llamada, 0/0 la segunda, otros dueños intactos.
+- L66 (defecto arreglado antes de commitear, declarado por el worker): el origen traía **todos** los
+  pagos de una dirección; el endpoint pagina en 100 y el provider pedía una sola página, así que el
+  pago 101 desaparecía de la pantalla sin ningún error. `collectAllPages` corta por página incompleta
+  (no por página vacía, porque un múltiplo exacto necesita una request más para saber que terminó) y
+  topa en 200 páginas con error explícito. 5 tests fijan los bordes, incluido el del múltiplo exacto.
+- L67 (deudas declaradas de T5b2): `ensureDefaultSettings()` del origen (periodicidad de cierre, tipo
+  de cambio PEN/USD, tolerancia de diferencia) NO se portó: es estado de cajas-bancos y ningún selector
+  de este formulario lo lee — queda para T5c. Los providers de `clientes`/`cajas-bancos` son read-only
+  acá (sin rutas de escritura). `receipt_sequence` avanzó a 104 por pagos reales de los tests. No
+  probado: pestañas `?filtro=…`, el diálogo de asignación, el modal de detalle en su sección de
+  asignación, el layout de impresión del recibo, y concurrencia (dos void/allocate en paralelo).
+- L68 (T7, Playwright): el worker **agotó su ciclo** (colgado 30 min con un `bash` corriendo, durante la
+  descarga de Chromium) pero el trabajo estaba completo al ir a mirar: 7 specs, soporte por psql con
+  transporte dual (docker local / `DATABASE_URL`+`PSQL_BIN` en CI), `playwright.config.ts` y el job
+  `e2e` del workflow. Se retomó el estado real en vez de repetir el intento, según la regla de límites
+  de worker. Chromium contenido en `.cache/ms-playwright` (744 MB, gitignored) para no depender del
+  perfil del usuario.
+- L69 (evidencia de T7, verificada por el padre): **10/10 tests verdes**, y los conteos del baseline
+  **idénticos antes y después** (entidad 9, comprobante 41, payment 45, payment_allocation 35,
+  cash_account 2, cash_receipt_category 7, payment_method 3, users 1, session 0, account 0). Los specs
+  cubren: redirect sin sesión, login por formulario, contraseña incorrecta mostrando el mensaje del
+  API, estado vacío de un dueño nuevo, alta con asignación, anulación, mensaje de dominio con cuenta
+  ajena e inexistente, y logout que revoca la sesión. `reuseExistingServer: false` con build de API y
+  web en cada corrida: un e2e contra un build viejo es peor que no tener e2e.
+- L70 (control negativo de T7): reemplacé `apiErrorMessage` por un mensaje genérico y el spec 06
+  **falló** (1 failed, con screenshot y trace); revert exacto verificado con `diff` contra la copia
+  previa. La suite es portante, no decorativa.
+- L71 (deuda L62 saldada): `playwright.config.ts` inyecta `BETTER_AUTH_TRUSTED_ORIGINS` al arrancar el
+  API, así que el login del e2e ejercita la validación de origen de Better Auth de verdad. El job
+  `e2e` del workflow arranca los dos procesos con build desde el árbol actual.
+- L72 (nota de operación): el e2e corre en `E2E_WEB_PORT`/`E2E_API_PORT` (por defecto 3000/3001). En
+  esta máquina había un `node.exe` (PID 16216) ocupando 3001, ajeno a la sesión: no se mató, se corrió
+  en 3100/3101.
+- L73 (T7 **probado en el proveedor**): run 45057203474 del PR #2 — **tres jobs en success**:
+  `checks` (16 pasos), `database` (16 pasos) y `e2e` (15 pasos). Dentro del job `e2e`, en el runner:
+  `Running 10 tests` → `10 passed (33.9s)` y los conteos del baseline idénticos antes y después
+  (misma lista que L69). Es la primera vez que el flujo completo —login, alta con asignación,
+  anulación, error de dominio, logout— corre solo en CI.
+- L74 (nota de operación): el push a `feat/pagos-ui` **no generó run inmediatamente**; GitHub lo creó
+  con varios minutos de retraso y recién ahí apareció como `pull_request` con el sha correcto. Se
+  disparó además uno manual con `workflow_dispatch` (que se canceló para no gastar runner). Cuando un
+  push parece no disparar CI, conviene mirar la API de runs antes de tocar el workflow: no era el
+  filtro, era latencia del proveedor.

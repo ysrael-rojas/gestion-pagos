@@ -18,6 +18,27 @@
       "outputs": ["coverage/**"],
       "env": ["DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL"]
     },
+    "e2e": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": ["test-results/**", "playwright-report/**"],
+      "env": [
+        "DATABASE_URL",
+        "API_URL",
+        "NEXT_PUBLIC_API_URL",
+        "BETTER_AUTH_SECRET",
+        "BETTER_AUTH_URL",
+        "BETTER_AUTH_TRUSTED_ORIGINS",
+        "DB_CONTAINER",
+        "DOCKER",
+        "PSQL_BIN",
+        "E2E_DB_TRANSPORT",
+        "E2E_WEB_PORT",
+        "E2E_API_PORT",
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "CI"
+      ]
+    },
     "dev": {
       "cache": false,
       "persistent": true

@@ -4,12 +4,13 @@ Este es el unico lugar donde se documenta el contrato de entorno que el CI neces
 una variable que el codigo lee en build, test o arranque, se documenta aca y se declara en
 `turbo.json` (ver "Variables y cache de Turborepo").
 
-Referencias: `.github/workflows/ci.yml` (la pipeline), `odd/tasks/port-monorepo.md` T6 y S19 (el
-contrato de la auditoria de RLS), `packages/db/scripts/` (los runners).
+Referencias: `.github/workflows/ci.yml` (la pipeline), `odd/tasks/port-monorepo.md` T6, T7 y S19 (el
+contrato de la auditoria de RLS y el del e2e), `packages/db/scripts/` y `apps/web/e2e/` (los
+runners).
 
 ## Que corre
 
-Dos jobs en paralelo, cada uno con su propio `postgres:18` de servicio (virgen).
+Tres jobs en paralelo, cada uno con su propio `postgres:18` de servicio (virgen).
 
 ### `checks` -- tipos, tests y build frio
 
@@ -22,7 +23,7 @@ Dos jobs en paralelo, cada uno con su propio `postgres:18` de servicio (virgen).
 | 5 | migraciones (la API las necesita) | `pnpm --filter @gestion/db db:verify` |
 | 6 | seeds en el orden de S20 | `pnpm --filter @gestion/db db:seed` |
 | 7 | tipos de los 4 paquetes | `pnpm typecheck` (turbo) |
-| 8 | tests | `pnpm test` (turbo; hoy solo `@gestion/api`) |
+| 8 | tests | `pnpm test` (turbo; `@gestion/api` 39 y `@gestion/web` 34) |
 | 9 | build de todos los paquetes | `pnpm build` (turbo) |
 | 10 | **build frio de la web** | `rm -rf apps/web/.next && pnpm --filter @gestion/web build` |
 
@@ -45,6 +46,30 @@ executed". Agregar el paso seria un verde vacio.
 | 9 | auditoria de RLS (S19, 8 bloques) | `pnpm --filter @gestion/db db:verify-rls` |
 | 10 | aislamiento por dueno (42 aserciones) | `pnpm --filter @gestion/db db:check-rls` |
 
+### `e2e` -- el vertical de pagos con Playwright
+
+T7. Levanta los DOS procesos reales (`apps/api` compilado con esbuild y `next build` + `next start`)
+sobre una base migrada y sembrada, y recorre el vertical como lo usa una persona: sin sesion ->
+login -> listado vacio -> alta con asignacion -> anulacion -> error de dominio -> cierre de sesion.
+
+| # | paso | comando |
+| --- | --- | --- |
+| 1-4 | checkout, node 22, corepack, install | igual que `checks` |
+| 5 | cliente de postgres (transporte de psql del suite) | `sudo apt-get update && sudo apt-get install -y postgresql-client` |
+| 6 | las 50 migraciones | `pnpm --filter @gestion/db db:verify` |
+| 7 | seeds en el orden de S20 (la demo tiene que existir) | `pnpm --filter @gestion/db db:seed` |
+| 8 | **solo Chromium**, con sus dependencias de sistema | `pnpm --filter @gestion/web exec playwright install --with-deps chromium` |
+| 9 | **los 10 specs** | `pnpm e2e` |
+
+Un solo comando (`pnpm e2e` -> `turbo run e2e` -> `playwright test`): el `webServer` de
+`apps/web/playwright.config.ts` compila y levanta el API y la web, espera a que respondan y los
+apaga al terminar. No hay `continue-on-error` ni reintentos: un spec que falla rompe el job.
+
+Cada spec crea su propio usuario desechable y sus fixtures (cuenta de caja, comprobante) por SQL con
+`psql`, y las borra en orden de FK. El `globalTeardown` vuelve a medir los conteos de las tablas
+sembradas y falla la corrida si alguna diferencia con el baseline. Los detalles -- transporte de
+psql, variables, que NO esta cubierto -- estan en "e2e del vertical de pagos (Playwright)", abajo.
+
 ## Variables de entorno
 
 Todas las que lee el codigo, en un solo lugar. El CI las provee con valores de relleno (el postgres
@@ -55,12 +80,16 @@ del runner es efimero y se descarta con la maquina); ninguna es un secreto y nin
 | `DATABASE_URL` | `packages/db/scripts/*`, `apps/api` (`db.provider.ts`), los e2e | `postgresql://ci:ci-throwaway@127.0.0.1:5432/gestion_ci` | la de tu base (ver abajo) |
 | `BETTER_AUTH_SECRET` | `apps/api` (firma de cookies/sesiones) | `ci-throwaway-secret-no-persistido` | cualquiera; los e2e generan uno efimero si falta |
 | `BETTER_AUTH_URL` | `apps/api` (origen publico) | `http://127.0.0.1:3001` | idem |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Better Auth en `apps/api` (validacion de `Origin` en los POST) | `http://127.0.0.1:3000` (el origen de la web) | el origen con el que abras la web, p. ej. `http://127.0.0.1:3000` |
+| `PLAYWRIGHT_BROWSERS_PATH` | Playwright (donde busca/instala el navegador) | `${{ github.workspace }}/.cache/ms-playwright` | default del config: `<repo>/.cache/ms-playwright` |
+| `E2E_WEB_PORT` / `E2E_API_PORT` | `apps/web/playwright.config.ts` y el suite | no se definen (3000 / 3001) | solo si esos puertos estan ocupados |
+| `E2E_DB_TRANSPORT` | `apps/web/e2e/support/psql.ts` | no se define (elige `url` por haber `DATABASE_URL` + `psql`) | `docker` para forzar el camino del compose |
 | `PORT` | `apps/api` (default 3001) | no se define | no hace falta |
 | `API_URL` | `apps/web/lib/api/client.ts` (llamadas server-side) | `http://127.0.0.1:3001` | idem |
 | `NEXT_PUBLIC_API_URL` | `apps/web` (llamadas del navegador; se inlinea en el bundle) | `http://127.0.0.1:3001` | idem |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `DB_PORT` | `compose.yaml`, y `apply-sql.mjs` / `drizzle.config.ts` cuando no hay `DATABASE_URL` | no se definen | las de tu archivo de entorno local del compose (gitignored) |
-| `DB_CONTAINER` / `DB_NAME` / `DB_USER` / `DOCKER` | `db:verify-rls` en su camino Docker | no se definen | ver "Auditoria de RLS" |
-| `PSQL_BIN` | `db:verify-rls` en su camino `DATABASE_URL` | no hace falta (`psql` esta en el PATH) | ruta al `psql` si no esta en el PATH |
+| `DB_CONTAINER` / `DB_NAME` / `DB_USER` / `DOCKER` | `db:verify-rls` en su camino Docker, y `apps/web/e2e/support/psql.ts` (`DB_CONTAINER`, `DOCKER`) | no se definen | ver "Auditoria de RLS" y "e2e" |
+| `PSQL_BIN` | `db:verify-rls` y el e2e en su camino `DATABASE_URL` | no hace falta (`psql` esta en el PATH) | ruta al `psql` si no esta en el PATH |
 | `TURBO_TELEMETRY_DISABLED` / `DO_NOT_TRACK` | turbo | `1` | opcional |
 
 ### Variables y cache de Turborepo
@@ -72,6 +101,12 @@ este CI). Por eso `turbo.json` declara:
 
 - `test`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`
 - `build`: `NEXT_PUBLIC_API_URL`, `API_URL`
+- `e2e`: `DATABASE_URL`, `API_URL`, `NEXT_PUBLIC_API_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`,
+  `BETTER_AUTH_TRUSTED_ORIGINS`, `DB_CONTAINER`, `DOCKER`, `PSQL_BIN`, `E2E_DB_TRANSPORT`,
+  `E2E_WEB_PORT`, `E2E_API_PORT`, `PLAYWRIGHT_BROWSERS_PATH`, `CI`
+
+La tarea `e2e` va con `cache: false` aunque declare `env`: una corrida toca una base real y un
+navegador, asi que reusar un resultado cacheado seria reportar como verde algo que no corrio.
 
 Declararlas tambien las mete en el hash de la tarea: dos bases distintas ya no comparten resultado
 cacheado.
@@ -134,11 +169,17 @@ rm -rf apps/web/.next && corepack pnpm --filter @gestion/web build
 corepack pnpm --filter @gestion/db db:verify-rls
 corepack pnpm --filter @gestion/db db:check-rls
 
-# 6) Limpieza del contenedor del CI.
+# 6) El job `e2e` (Playwright). El navegador va al workspace, no al perfil del runner.
+export BETTER_AUTH_TRUSTED_ORIGINS=http://127.0.0.1:3000
+export PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright"
+corepack pnpm --filter @gestion/web exec playwright install --with-deps chromium
+corepack pnpm e2e
+
+# 7) Limpieza del contenedor del CI.
 docker rm -f gestion-ci
 ```
 
-En el CI los dos jobs corren en paralelo, cada uno con su propio postgres de servicio. En local
+En el CI los tres jobs corren en paralelo, cada uno con su propio postgres de servicio. En local
 alcanza una sola base porque el drift guard corre **antes** de sembrar: es un contrato de
 esquema, no de filas.
 
@@ -208,11 +249,73 @@ deshabilitada, revoke de un grant de columna) siguen saliendo 1 con un unico hun
 tercera forma, `create database ... template template0`, da el mismo ACL en PostgreSQL 18 y
 tambien exit 0.
 
+## e2e del vertical de pagos (Playwright)
+
+T7. El suite vive en `apps/web/e2e/` (config: `apps/web/playwright.config.ts`). Un solo comando
+desde la raiz:
+
+```bash
+export DATABASE_URL=postgresql://<lo que sea tu base>          # la MISMA que usa apps/api
+export BETTER_AUTH_SECRET=<cualquiera>                           # efimera si falta
+export BETTER_AUTH_TRUSTED_ORIGINS=http://127.0.0.1:3000         # el origen de la web
+corepack pnpm e2e
+```
+
+`pnpm e2e` -> `turbo run e2e` -> `playwright test`. Playwright compila y levanta los dos
+servicios en `webServer` (API: `node ../api/scripts/build.mjs && node ../api/dist/main.js`; web:
+`next build && next start`), espera a que respondan y los apaga. No hace falta arrancar nada a
+mano y no se reusa un servidor ya levantado (`reuseExistingServer: false`): un e2e que valida un
+build viejo es peor que no tener e2e.
+
+### Que prueba
+
+| spec | afirmacion |
+| --- | --- |
+| `01-auth-redirect` | sin sesion, `/pagos/ingresos` y `/` redirigen a `/login` (redirect de servidor, no un shell vacio) |
+| `02-sign-in` | login por el formulario real: cookie `HttpOnly`, sesion que sobrevive a la recarga, `/login` con sesion va a `/`; una contrasena incorrecta muestra el mensaje del API |
+| `03-empty-state` | el dueno nuevo ve el estado vacio en ingresos y egresos (ni una fila de la demo) |
+| `04-create-payment` | catalogos self-provisionados, resumen asignado/sin asignar (600/400), vuelta al listado, fila con numero de recibo y saldo, y la asignacion persistida en el detalle |
+| `05-void-payment` | anular desde el listado: el estado pasa a Anulado y la accion de anular desaparece |
+| `06-domain-error` | el mensaje del dominio llega **verbatim** a la notificacion ("La cuenta de caja no existe") y el pago no se crea; dos casos: cuenta de otro dueno y cuenta inexistente |
+| `07-sign-out` | cerrar sesion revoca la sesion (`auth.session` vuelve a 0) y las rutas protegidas vuelven a `/login` |
+
+### Determinismo
+
+- **Un usuario por spec**, creado por el camino real de alta (`POST /api/auth/sign-up/email`). La
+  contrasena se genera en runtime: no hay credencial en ningun archivo del repo.
+- **Fixtures propias** (cuenta de caja, entidad, comprobante) sembradas por SQL como dueno de las
+  tablas, igual que los seeds, siempre con `owner_id` explicito. `apps/api` no expone escritura de
+  cuentas ni de comprobantes, asi que no hay otra via. El dueno demo nunca se toca: todas las
+  clausulas son por el uuid del usuario desechable.
+- **Borrado en orden de FK** en el teardown de cada spec (y de la fixture si el spec falla).
+- **Conteos medidos**: `globalSetup` toma el conteo de las tablas sembradas y `globalTeardown` lo
+  vuelve a medir; cualquier diferencia falla la corrida. `receipt_sequence` se cuenta por filas, no
+  por valor: `last_serial` es monotono y un alta real tiene que avanzarlo.
+- Si una corrida anterior dejo usuarios desechables (Ctrl-C, un `| head` que corta el proceso), el
+  setup **no arranca**: el baseline ya no representaria la base sembrada. Es deliberado -- un
+  baseline sucio haria que el check del teardown no pruebe nada.
+
+### puertos, navegador y transporte de psql
+
+- Puertos 3000 (web) y 3001 (API) por default; `E2E_WEB_PORT` / `E2E_API_PORT` los cambian (util
+  si algo ya ocupa esos puertos en tu maquina).
+- El navegador se instala dentro del workspace: `PLAYWRIGHT_BROWSERS_PATH` apunta a
+  `<repo>/.cache/ms-playwright` (gitignored) por default del config, y el workflow lo fija al mismo
+  valor. No se usa el perfil del usuario ni el cache del runner.
+- Las fixtures se siembran con `psql`, reusando el transporte doble de `db:verify-rls`: `url`
+  (psql local contra `DATABASE_URL`) o `docker` (`docker exec`). Se elige `url` cuando hay
+  `DATABASE_URL` y un psql alcanzable, `docker` en caso contrario; `E2E_DB_TRANSPORT` lo fuerza. El
+  setup verifica que el transporte y `DATABASE_URL` apunten a la **misma** base: si no, las
+  fixtures irian a una y la app leeria otra.
+
 ## Lo que este CI no cubre
 
-- `apps/web` no tiene tests (ni unitarios ni e2e). El e2e de Playwright es T7: no existe todavia.
+- Del vertical de pagos quedan sin e2e (deudas de L67): las pestañas `?filtro=…`, el dialogo de
+  asignacion sobre un pago existente, la seccion de asignacion del modal de detalle y el layout de
+  impresion del recibo.
 - La concurrencia real (dos `void`/`allocate` en paralelo) sigue sin probarse (L46d).
 - Nada de despliegue, migracion de produccion ni smoke test contra un entorno real: el workflow
   solo verifica el arbol y una base efimera.
 - `pnpm deploy`/Docker de la imagen de la API y el `next start` de la web no se prueban (no hay
   pipeline de entrega todavia).
+

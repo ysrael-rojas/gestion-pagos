@@ -1,0 +1,25 @@
+{
+  "name": "@gestion/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:pull": "drizzle-kit pull",
+    "db:verify": "node scripts/apply-sql.mjs",
+    "db:seed": "node scripts/apply-seeds.mjs",
+    "db:dump": "node scripts/dump-schema.mjs",
+    "db:verify-rls": "node scripts/verify-rls.mjs",
+    "db:check-rls": "node scripts/check-rls-enforcement.mjs",
+    "db:studio": "drizzle-kit studio",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11"
+  }
+}

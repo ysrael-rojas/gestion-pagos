@@ -482,3 +482,17 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   sesión revocada en la base, y conteos de la base iguales al baseline después de borrar el usuario.
 - L60 (límite del entorno): `/tmp` desapareció a mitad de sesión (los redirects fallaban con "could
   not find /tmp"), así que las herramientas pasaron a usar `.cache/tmp/` dentro del proyecto.
+- L61 (T6 **probado en el proveedor**, no sólo localmente): PR #1
+  (github.com/ysrael-rojas/gestion-pagos/pull/1) con el run 45027970999 — los dos jobs en `success`,
+  16 pasos cada uno, cero pasos fallidos: `actions/checkout`, `setup-node`, `corepack enable` (pnpm
+  10.20.0 del `packageManager`), el contenedor `postgres:18` con su health check, las 50 migraciones,
+  los seeds en orden S20, `db:dump --check`, `db:verify-rls` 8/8, `db:check-rls` 42/42, typecheck,
+  33 tests contra base real, build de los 4 paquetes y el build frío de la web. Única anotación del
+  runner: `actions/checkout@v4` y `actions/setup-node@v4` corren forzadas sobre Node 24 (deprecación
+  de Node 20 en Actions), sin efecto.
+- L62 (deuda verificada en el proveedor): `BETTER_AUTH_TRUSTED_ORIGINS` sigue sin estar en el repo.
+  No rompe CI porque los tests de la API no mandan cabecera `Origin`; sí rompería el login de la web
+  en un despliegue. Pendiente: agregarla a `.github/CI.md` y al `env` del workflow, y decidir el
+  origen por entorno.
+- L63 (proceso, otra vez): un `git push` encadenado con `cd && cat >> … && git commit` hace que el
+  guard **no ejecute ninguno** de los comandos anteriores. Los de entrega van solos, siempre.

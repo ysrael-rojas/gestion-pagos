@@ -8,8 +8,12 @@
 // Que NO hace: no transforma nada, no valida nada y no agrega campos. El `owner_id` no existe en
 // esta capa: lo pone `withOwner` en apps/api a partir de la sesion.
 //
-// Lista blanca de prefijos y metodos: el puente solo alcanza el vertical de pagos, no cualquier
-// ruta del API. Un path inesperado responde 404 sin salir del proceso.
+// Lista blanca de prefijos y metodos: el puente solo alcanza los verticales portados (pagos y
+// clientes), no cualquier ruta del API. Un path inesperado responde 404 sin salir del proceso.
+//
+// `PATCH` esta porque `PATCH /entities/:id` es la modificacion de cliente (T5c). Sin el, el
+// navegador recibia 405 del puente y el usuario veia "El API respondio 405" en la pantalla de
+// edicion: el sintoma parecia del API y era de esta lista.
 import { API_BASE_URL } from "@/lib/api/client";
 
 /** Prefijos de apps/api que el frontend consume hoy. */
@@ -24,7 +28,7 @@ const ALLOWED_PREFIXES = new Set([
   "catalogs",
 ]);
 
-const ALLOWED_METHODS = new Set(["GET", "POST"]);
+const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH"]);
 
 async function proxy(
   request: Request,
@@ -45,7 +49,7 @@ async function proxy(
   const headers: Record<string, string> = { accept: "application/json" };
   const cookie = request.headers.get("cookie");
   const contentType = request.headers.get("content-type");
-  const body = request.method === "POST" ? await request.text() : undefined;
+  const body = request.method === "GET" ? undefined : await request.text();
 
   if (cookie) headers.cookie = cookie;
   if (body !== undefined && contentType) headers["content-type"] = contentType;
@@ -86,6 +90,13 @@ export async function GET(
 }
 
 export async function POST(
+  request: Request,
+  context: { params: Promise<{ path?: string[] }> },
+): Promise<Response> {
+  return proxy(request, context);
+}
+
+export async function PATCH(
   request: Request,
   context: { params: Promise<{ path?: string[] }> },
 ): Promise<Response> {

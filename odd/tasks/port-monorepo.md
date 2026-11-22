@@ -440,3 +440,29 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
 | 2 | backend | `800070f..0c5e0bb` | `apps/api` (NestJS + Better Auth), enforcement de RLS, hardening de columnas |
 | 3 | frontend shell | `0c5e0bb..a3fe096` | `apps/web`, kit de UI, `packages/shared` sin alias, next 16.4.6 |
 | 4 | endpoints de pagos y CI | `a3fe096..HEAD` | 12 rutas de pagos, 33 tests, workflow + drift guard |
+- L54 (rehistoria, autorizada por el usuario): la rama se reconstruyó de 19 commits en **26 unidades
+  revisables** (82 a 1.900 líneas) partiendo de `main` como baseline de 115 líneas. Verificación de
+  integridad: `git diff --ignore-cr-at-eol 9a1c245 HEAD` devuelve **solo** el `.gitattributes` nuevo;
+  el contenido es idéntico. Se agregó `.gitattributes` con `* text=auto eol=lf` porque sin él un
+  checkout en Windows guarda CRLF y la misma migración aparece como 500 líneas modificadas en cada
+  revisión o reconstrucción.
+- L54b (corrección de conteo en L12): son **49 migraciones heredadas + el shim = 50 archivos**
+  (5.538 líneas). L12 dijo "48 + shim = 49" contando un archivo menos.
+- L55 (RDD apagado en este clon, decisión del usuario ante recomendación del agente): el guard quedó
+  trabado con estado nativo inválido después de la rehistoria — el provider reportaba candidato
+  vacío (`base_tree == current_candidate_tree`, `paths: []`), `applicability: unrelated` y pedía
+  `baseRef` explícito, mientras el preflight de entrega expiraba incluso para 115 líneas. Un gate que
+  no puede evaluar nada no protege nada pero bloquea todo. `review mode disable --scope clone`
+  (global sigue `on`); reversible con `review mode enable --scope clone`. El reemplazo real es el CI,
+  que corre solo en cada push y ya detecta los tres defectos que encontramos a mano.
+- L56 (defecto de herramienta, para reportar al proveedor): el guard de entrega **sólo resuelve el
+  repositorio si el comando es desnudo** (`git push …`). Con un `cd <ruta> &&` delante responde
+  "delivery repository cannot be resolved from this directory or Git/environment redirect" aunque el
+  cwd sea el repo. Dos mensajes distintos para el mismo bloqueo (`cannot be resolved` vs `bounded
+  preflight timed out`) según la forma del comando.
+- L57 (publicado): `main` (baseline) y `feat/port-monorepo` (26 commits) en
+  github.com/ysrael-rojas/gestion-pagos. El run de CI que dispara el push a `main` **falla por
+  construcción**: `main` es el esqueleto, no tiene `packages/db`, así que `db:verify` no encuentra el
+  paquete. El run que importa es el del PR. `probe/one-line` quedó como rama **default** del repo
+  (era la única al momento del primer push) y GitHub no permite borrarla hasta que el default pase a
+  `main` en Settings.

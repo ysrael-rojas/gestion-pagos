@@ -1,15 +1,18 @@
 "use client";
 
-// Provider de clientes (port de la parte de lectura de `components/clientes/clientes-provider.tsx`
-// del origen, 133 lineas).
+// Provider de clientes (port de `components/clientes/clientes-provider.tsx` del origen, 133 lineas).
 //
-// Que conserva: `clients`, `isLoading`, `error` y `refresh`, que es lo que usan el autocomplete de
-// entidades, `useEntityOptions` y el resolvedor de nombres de la tabla de pagos.
+// Contrato completo: `clients`, `isLoading`, `error`, `refresh` y las tres mutaciones
+// (`addClient`, `updateClient`, `removeClient`). Las mutaciones esperan la escritura del API y
+// despues refrescan el listado; NO hay actualizacion optimista, igual que el origen, asi que la
+// tabla nunca muestra una fila que el servidor rechazo.
 //
-// Que NO trae: `addClient`, `updateClient` y `removeClient`. En el origen escribian en
-// `entidad` desde el navegador; esas rutas no existen en `apps/api` (son del vertical de clientes,
-// T5c) y ninguno de los archivos de pagos las llama. Portarlas seria cablear contra endpoints
-// inexistentes.
+// El orden importa: si la escritura falla (409 por documento duplicado, 400 por payload
+// invalido), el error sale de la promesa y el listado no se refresca. El que llama decide que
+// hacer con el; la pagina de clientes muestra el mensaje del API en un toast.
+//
+// El autocomplete de pagos y el resolvedor de nombres solo leen, y el shape del contexto no
+// cambio de nombre en ninguno de sus campos: agregar metodos es seguro para ellos.
 import {
   createContext,
   useCallback,
@@ -20,13 +23,22 @@ import {
   useState,
 } from "react";
 
+import type { ClientFormValues } from "@gestion/shared";
 import type { Client } from "@/components/clientes/types";
-import { listClients } from "@/lib/clientes/entidades";
+import {
+  createClientRecord,
+  listClients,
+  softDeleteClient,
+  updateClientRecord,
+} from "@/lib/clientes/entidades";
 
 interface ClientesContextValue {
   clients: Client[];
   isLoading: boolean;
   error: string | null;
+  addClient: (values: ClientFormValues) => Promise<void>;
+  updateClient: (id: string, values: ClientFormValues) => Promise<void>;
+  removeClient: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -79,9 +91,42 @@ export function ClientesProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refresh]);
 
+  // Las tres mutaciones escriben primero y refrescan despues (comportamiento del origen).
+  const addClient = useCallback(
+    async (values: ClientFormValues) => {
+      await createClientRecord(values);
+      await refresh();
+    },
+    [refresh]
+  );
+
+  const updateClient = useCallback(
+    async (id: string, values: ClientFormValues) => {
+      await updateClientRecord(id, values);
+      await refresh();
+    },
+    [refresh]
+  );
+
+  const removeClient = useCallback(
+    async (id: string) => {
+      await softDeleteClient(id);
+      await refresh();
+    },
+    [refresh]
+  );
+
   const value = useMemo(
-    () => ({ clients, isLoading, error, refresh }),
-    [clients, isLoading, error, refresh]
+    () => ({
+      clients,
+      isLoading,
+      error,
+      addClient,
+      updateClient,
+      removeClient,
+      refresh,
+    }),
+    [clients, isLoading, error, addClient, updateClient, removeClient, refresh]
   );
 
   return (

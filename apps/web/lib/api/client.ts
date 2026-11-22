@@ -21,7 +21,7 @@
 // aca (en vez de importarse de apps/api) porque `apps/web` no depende de `@gestion/api`: el
 // paquete del backend no es publicable y su build es un bundle de esbuild. Cambiar un campo alla
 // es cambiar este archivo, y el unico lugar donde eso se nota rapido son los tests de la UI.
-import type { PaymentFormValues } from "@gestion/shared";
+import type { ClientFormValues, PaymentFormValues } from "@gestion/shared";
 
 const DEFAULT_API_BASE_URL = "http://localhost:3001";
 
@@ -182,6 +182,17 @@ export interface EntityCatalogItem {
   isSupplier: boolean;
 }
 
+/**
+ * Entidade que devuelven las ESCRITURAS de `/entities` (`apps/api/src/entities/entities.types.ts`).
+ *
+ * Es `EntityCatalogItem` mas `isClient`: el listado por rol ya sabe cual es cual, pero la
+ * respuesta de un alta o modificacion describe la fila completa, y `isClient` ahi importa (una
+ * modificacion nunca lo cambia, y el e2e lo fija).
+ */
+export interface ClientRecord extends EntityCatalogItem {
+  isClient: boolean;
+}
+
 export interface CashAccountCatalogItem {
   id: string;
   type: CashAccountType;
@@ -319,7 +330,11 @@ export function resolveApiBase(): string {
 
 async function request<T>(
   path: string,
-  options: { method?: "GET" | "POST"; query?: Record<string, QueryValue>; body?: unknown } = {},
+  options: {
+    method?: "GET" | "POST" | "PATCH";
+    query?: Record<string, QueryValue>;
+    body?: unknown;
+  } = {},
 ): Promise<T> {
   const base = resolveApiBase();
   const url = `${base}${path}${options.query ? buildQuery(options.query) : ""}`;
@@ -467,6 +482,31 @@ export function listOpenVouchers(
 /** Entidades no borradas del dueno (`listClients` / `listSuppliers`). */
 export function listEntities(role: "client" | "supplier"): Promise<EntityCatalogItem[]> {
   return request<EntityCatalogItem[]>("/entities", { query: { role } });
+}
+
+/** Alta de cliente (`createClientRecord` del origen). El body es el contrato del formulario. */
+export function createEntity(values: ClientFormValues): Promise<ClientRecord> {
+  return request<ClientRecord>("/entities", { method: "POST", body: values });
+}
+
+/** Modificacion de cliente (`updateClientRecord`). Mismo body que el alta. */
+export function updateEntity(id: string, values: ClientFormValues): Promise<ClientRecord> {
+  return request<ClientRecord>(`/entities/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: values,
+  });
+}
+
+/**
+ * Baja logica (`softDeleteClient`): `POST /entities/:id/delete`.
+ *
+ * POST y no DELETE porque la fila no desaparece: se marca `deleted_at`, igual que la anulacion
+ * de un pago.
+ */
+export async function softDeleteEntity(id: string): Promise<void> {
+  await request<{ deleted: true }>(`/entities/${encodeURIComponent(id)}/delete`, {
+    method: "POST",
+  });
 }
 
 /** Cuentas de caja y banco (`listCashAccounts`). */

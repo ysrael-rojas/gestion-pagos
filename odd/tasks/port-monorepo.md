@@ -551,3 +551,24 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   disparó además uno manual con `workflow_dispatch` (que se canceló para no gastar runner). Cuando un
   push parece no disparar CI, conviene mirar la API de runs antes de tocar el workflow: no era el
   filtro, era latencia del proveedor.
+- L75 (T8 entregada, delegada): `README.md` (90 líneas), `docs/operacion/entornos.md` (211) y
+  `docs/operacion/crear-usuario.md` (198) reescritos para este stack, más las tres skills de dominio
+  (`caja-bancos-mype`, `consultor-pagos-cobranzas`, `facturacion-sunat-mype`) con frontmatter válido y
+  sus 9 referencias copiadas verbatim (688 líneas). Regla por regla mapeada: lo que no existe (deploy,
+  preview, backups, panel de Auth, reset por correo) **se dice que no existe** en vez de inventarse un
+  equivalente.
+- L76 (defecto real encontrado y arreglado): `db:dump` documentado como
+  `pnpm --filter @gestion/db db:dump > schema-snapshot.sql` **corrompía el snapshot**: pnpm escribe
+  cuatro líneas de banner a stdout y el redirect las mete en el archivo. El worker lo detectó al
+  ejecutar los comandos que documentaba. Corregido en las tres apariciones a
+  `node packages/db/scripts/dump-schema.mjs > …` y snapshot regenerado; `db:dump --check` verde.
+- L77 (deuda declarada, con costo medido): el API acepta `POST /api/auth/sign-up/email`
+  (`emailAndPassword.enabled` sin `disableSignUp`), así que "solo el dueño crea cuentas" es hoy una
+  restricción de la UI, no del servidor. Cerrarlo exige cambiar la creación del segundo dueño en los
+  tests del API y en el e2e (hoy usan el endpoint real) por fixtures SQL, y desactivar el alta.
+  Decisión pendiente; documentado en `docs/operacion/crear-usuario.md`.
+- L78 (deuda declarada): `apps/api` `dev` es `node scripts/build.mjs --watch` y **no arranca el
+  servidor**, así que `pnpm dev` no levanta el API. El camino que funciona (build + start aparte) está
+  en el `README.md`. Arreglarlo bien pide `@nestjs/cli` (`nest start --watch`) o un runner equivalente:
+  es una dependencia nueva, no un detalle. `turbo.json` ya declara `env` para `dev` (hecho en esta
+  sesión) para que el modo strict no borre `DATABASE_URL`.

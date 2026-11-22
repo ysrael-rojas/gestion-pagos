@@ -5,7 +5,7 @@
 --
 -- Regenerar despues de agregar o cambiar una migracion:
 --   export DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5434/gestion_pagos_dev
---   pnpm --filter @gestion/db db:dump > packages/db/scripts/schema-snapshot.sql
+--   node packages/db/scripts/dump-schema.mjs > packages/db/scripts/schema-snapshot.sql
 --
 -- Verificar (lo que corre el CI):
 --   pnpm --filter @gestion/db db:dump --check

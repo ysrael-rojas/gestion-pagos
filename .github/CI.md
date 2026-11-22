@@ -220,7 +220,7 @@ funcion, de esquema y los default privileges de las tablas futuras.
 Regenerar el snapshot (despues de una migracion nueva, nunca a mano):
 
 ```bash
-pnpm --filter @gestion/db db:dump > packages/db/scripts/schema-snapshot.sql
+node packages/db/scripts/dump-schema.mjs > packages/db/scripts/schema-snapshot.sql
 ```
 
 Por que el snapshot vive en `packages/db/scripts/`: junto al script que lo genera, y el paquete ya

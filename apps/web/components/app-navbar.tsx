@@ -8,6 +8,10 @@
 // (T5c) se siguen viendo —para que el mapa de la app no cambie de forma entre verticales— pero
 // quedan deshabilitados y sin `href`: un enlace a una ruta inexistente seria un 404 disfrazado
 // de navegacion.
+//
+// Cada vertical que se porta mueve su entrada de `PENDING_GROUPS` a `LINKS`, sin renombrarla ni
+// reordenar el resto: "Maestro" ya es una ruta real (`/clientes/listado`, T5c) y por eso se
+// enlaza como los pagos.
 import {
   Activity,
   ArrowDownCircle,
@@ -57,6 +61,9 @@ const LINKS: NavLink[] = [
   // enlazan las dos directamente, sin cambiar el mapa de la app ni inventar rutas.
   { label: "Ingresos", href: "/pagos/ingresos", icon: ArrowDownCircle },
   { label: "Egresos", href: "/pagos/egresos", icon: ArrowUpCircle },
+  // Vertical de clientes (T5c): en el origen era el grupo "Maestro"; aca es un enlace directo,
+  // con el mismo trato que las dos entradas de pagos.
+  { label: "Maestro", href: "/clientes/listado", icon: Database },
   { label: "Estado del API", href: "/health", icon: Activity },
 ];
 
@@ -69,7 +76,6 @@ const PENDING_GROUPS: PendingGroup[] = [
     icon: FileText,
     modules: ["/notas/credito", "/notas/debito", "/retenciones"],
   },
-  { label: "Maestro", icon: Database, modules: ["/clientes/listado"] },
   {
     label: "Caja y bancos",
     icon: Landmark,

@@ -15,9 +15,12 @@ propio. Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app
   (`set_config('app.user_id', …, true)` + `set local role authenticated`) y ningún input de
   cliente acepta `owner_id`: lo completa el default `auth.uid()` de la tabla.
 - **S3 — Strings del source que se preservan textualmente.** Confirmación de borrado:
-  "Estás seguro? Esto eliminará el cliente."; toasts: "Cliente registrado", "Cliente actualizado",
-  "Cliente eliminado"; checkbox: "Es proveedor"; conflicto de documento:
+  "¿Seguro que quieres eliminar este cliente? Esta acción no se puede deshacer."
+  (`gestion-app/app/(app)/clientes/listado/page.tsx:138`); toasts: "Cliente registrado"
+  (`:62`), "Cliente actualizado" (`:59`), "Cliente eliminado" (`:77`); checkbox: "Es proveedor"
+  (`components/clientes/client-form.tsx:258`); conflicto de documento:
   "Ya existe un cliente con ese tipo y número de documento."
+  (`lib/clientes/entidades.ts:52`).
 - **S4 — Soft delete heredado, sin guard nuevo.** El source solo escribe `deleted_at`; eliminar un
   cliente referenciado por `comprobante`/`payment` sigue permitido. Agregar un guard sería
   comportamiento no pedido: se documenta la decisión, no se inventa.
@@ -37,15 +40,33 @@ propio. Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app
   Specs: S2, S3, S5. Ruta: inline. **Hecho**: 9/9 tests verdes (L8), commit: _(pendiente)_.
 - C2 — Capa de datos web: endpoints en `apps/web/lib/api/client.ts`, escrituras en
   `apps/web/lib/clientes/entidades.ts`, mutaciones del provider. Specs: S1, S3, S5. Ruta: inline.
-  Commit: _(pendiente)_.
+  **Hecho**: typecheck verde, commit `959d50c`.
 - C3 — UI: port de `components/clientes/*`, ruta `app/(app)/clientes/listado` y entrada "Maestro"
-  en la navbar. Specs: S1, S3, S4, S6. Ruta: inline. Commit: _(pendiente)_.
-- C4 — Consistencia de tipos y test del schema Zod (hoy huérfano en `packages/shared`).
-  Specs: S6. Ruta: inline. Commit: _(pendiente)_.
+  en la navbar. Specs: S1, S3, S4, S6. Ruta: worker (context backstop). Commit: _(pendiente)_.
+- C4 — Consistencia de tipos y cobertura del schema Zod por el borde HTTP (hoy huérfano en
+  `packages/shared`). Specs: S6. Ruta: inline. **Hecho**: typecheck web + 34/34 tests, commit
+  `cbad13b`.
 - C5 — e2e `08-clientes.spec.ts`: alta, conflicto de documento duplicado, edición, baja lógica que
   persiste tras recargar. Specs: S3, S4, S5, S7. Ruta: inline. Commit: _(pendiente)_.
 - C6 — Docs: fila en `.github/CI.md`, cierre en `port-monorepo.md` y handoff del vertical.
   Specs: S7. Ruta: inline. Commit: _(pendiente)_.
+
+## Cortes de entrega
+
+Rama `feat/vertical-clientes`. Un commit por unidad revisable.
+
+- **Slice 1 — `151453d`** `feat(api)`: modulo `entities` completo (6 archivos, 505 lineas). Va por
+  encima de las ~400 por slice a proposito: son cinco archivos de una sola unidad de
+  comportamiento (el alta no existe sin el error map ni la normalizacion) y partirlos dejaria el
+  primer commit sin comportamiento observable. Revisar `entities.errors.ts` primero: ahi esta la
+  decision del mensaje de conflicto.
+- **Slice 2 — `84396b7`** `test(api)`: los 9 tests del e2e (~500 lineas). Se revisan contra la
+  tabla de S2/S3/S5, no contra la implementacion.
+- **Slice 3 — `cbad13b`** `refactor(shared)`: colapso del tipo `Client` duplicado.
+- **Slice 4 — `959d50c`** `feat(web)`: capa de datos del vertical.
+
+Un PR de este vertical supera las ~400 lineas: cuando se publique, la forma (PR encadenado API+UI
+o un PR unico con el orden de los commits como guia) es decision del usuario, no de este documento.
 
 ## Log
 
@@ -66,6 +87,15 @@ propio. Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app
   mensaje del check, no con el de pagos (S5).
 - **L6 — Decisión (padre).** Se hereda el soft delete sin guard (S4): portar fiel gana sobre
   agregar comportamiento no pedido; queda anotado como deuda si ventas/compras lo necesitan.
+- **L10 — Nota de slice (harness).** Los slices 1 y 2 superan las ~400 lineas por commit (505 y
+  500). Van separados a proposito (codigo vs tests) y la revision se guia por el orden de los
+  commits; se anota para que no parezca un descuido.
+- **L11 — Correccion de spec (error del padre).** S3 citaba como textual una confirmacion de
+  borrado que **no** era la del source ("Estas seguro? Esto eliminara el cliente."), inventada al
+  redactar el documento. El worker de C3 lo detecto al diffear contra el source. La cadena real es
+  "¿Seguro que quieres eliminar este cliente? Esta acción no se puede deshacer."
+  (`gestion-app/app/(app)/clientes/listado/page.tsx:138`). S3 queda reescrita **citando la linea**
+  de cada string, para que no vuelva a pasar, y la UI se ajusta a la del source.
 - **L7 — Hallazgo (regresión de contrato heredada).** `entidad_document_unique` es
   `(document_type, document_number)` **sin `owner_id`**: dos duenos distintos no pueden usar el
   mismo RUC/DNI. Viene de la migracion del origen, que es fuente de verdad (S7 del doc padre), asi

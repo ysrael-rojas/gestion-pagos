@@ -541,3 +541,13 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
 - L72 (nota de operación): el e2e corre en `E2E_WEB_PORT`/`E2E_API_PORT` (por defecto 3000/3001). En
   esta máquina había un `node.exe` (PID 16216) ocupando 3001, ajeno a la sesión: no se mató, se corrió
   en 3100/3101.
+- L73 (T7 **probado en el proveedor**): run 45057203474 del PR #2 — **tres jobs en success**:
+  `checks` (16 pasos), `database` (16 pasos) y `e2e` (15 pasos). Dentro del job `e2e`, en el runner:
+  `Running 10 tests` → `10 passed (33.9s)` y los conteos del baseline idénticos antes y después
+  (misma lista que L69). Es la primera vez que el flujo completo —login, alta con asignación,
+  anulación, error de dominio, logout— corre solo en CI.
+- L74 (nota de operación): el push a `feat/pagos-ui` **no generó run inmediatamente**; GitHub lo creó
+  con varios minutos de retraso y recién ahí apareció como `pull_request` con el sha correcto. Se
+  disparó además uno manual con `workflow_dispatch` (que se canceló para no gastar runner). Cuando un
+  push parece no disparar CI, conviene mirar la API de runs antes de tocar el workflow: no era el
+  filtro, era latencia del proveedor.

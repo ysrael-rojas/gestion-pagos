@@ -496,3 +496,26 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   origen por entorno.
 - L63 (proceso, otra vez): un `git push` encadenado con `cd && cat >> … && git commit` hace que el
   guard **no ejecute ninguno** de los comandos anteriores. Los de entrega van solos, siempre.
+- L64 (T5b2 entregada, delegada): vertical `pagos` completo — 13 componentes (3.484 líneas), 3 piezas
+  de `components/shared`, 2 providers, 4 libs, 4 rutas y la entrada `Pagos` del navbar. La capa de
+  datos pasa por un **BFF same-origin** (`app/api/backend/[...path]`) porque el API no habilita CORS y
+  la cookie es HttpOnly; el BFF reenvía sólo un prefijo permitido y deja cuerpo y status intactos
+  (`GET /api/backend/auth/session` → 404, no proxya). `types.ts` bajó de 130 a 44 líneas porque los
+  tipos de dominio se re-exportan del contrato del API en vez de redeclararse.
+- L65 (T5b1 ampliada, autorizada): 4 endpoints de catálogo que el formulario necesitaba y no existían
+  (`/entities`, `/cash-accounts`, `/payment-methods`, `/receipt-categories`) + `POST /catalogs/ensure`.
+  **Desviación deliberada**: el origen sembraba catálogos desde dentro de un GET (abrir el formulario
+  insertaba 3 métodos y 13 categorías). Se conservó el efecto y se movió el mecanismo: lecturas puras
+  y un POST idempotente explícito, con los mismos códigos y nombres que `seed-demo.sql`. Probado: 3+13
+  la primera llamada, 0/0 la segunda, otros dueños intactos.
+- L66 (defecto arreglado antes de commitear, declarado por el worker): el origen traía **todos** los
+  pagos de una dirección; el endpoint pagina en 100 y el provider pedía una sola página, así que el
+  pago 101 desaparecía de la pantalla sin ningún error. `collectAllPages` corta por página incompleta
+  (no por página vacía, porque un múltiplo exacto necesita una request más para saber que terminó) y
+  topa en 200 páginas con error explícito. 5 tests fijan los bordes, incluido el del múltiplo exacto.
+- L67 (deudas declaradas de T5b2): `ensureDefaultSettings()` del origen (periodicidad de cierre, tipo
+  de cambio PEN/USD, tolerancia de diferencia) NO se portó: es estado de cajas-bancos y ningún selector
+  de este formulario lo lee — queda para T5c. Los providers de `clientes`/`cajas-bancos` son read-only
+  acá (sin rutas de escritura). `receipt_sequence` avanzó a 104 por pagos reales de los tests. No
+  probado: pestañas `?filtro=…`, el diálogo de asignación, el modal de detalle en su sección de
+  asignación, el layout de impresión del recibo, y concurrencia (dos void/allocate en paralelo).

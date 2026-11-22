@@ -8,7 +8,12 @@ name: CI
 # Este workflow convierte esos tres hallazgos en checks que corren solos:
 #   - `checks`   compila y prueba todo el monorepo, e incluye el build EN FRIO de la web (c),
 #   - `database` aplica las migraciones y los seeds sobre una base virgen y corre las dos suites
-#                de RLS (a) + el drift guard que compara el esquema real con un snapshot (b).
+#                de RLS (a) + el drift guard que compara el esquema real con un snapshot (b),
+#   - `e2e`      levanta el API y la web reales y recorre el vertical de pagos con Playwright
+#                (login, alta con asignacion, anulacion, error de dominio, cierre de sesion).
+#                Es la red que impide que el proximo vertical llegue sin cobertura: la
+#                verificacion que se hizo una vez con scripts CDP descartables (L64) ahora corre
+#                en cada push.
 #
 # Lo que NO hay aca: un paso de lint. Ningun paquete del monorepo define un script `lint`, asi
 # que `turbo run lint` no ejecuta ninguna tarea (sale 0 con "No tasks were executed"). Un paso
@@ -40,8 +45,15 @@ env:
   DATABASE_URL: postgresql://ci:ci-throwaway@127.0.0.1:5432/gestion_ci
   BETTER_AUTH_SECRET: ci-throwaway-secret-no-persistido
   BETTER_AUTH_URL: http://127.0.0.1:3001
+  # Deuda de L62 saldada: el navegador manda `Origin: http://127.0.0.1:3000` al iniciar sesion y
+  # Better Auth lo valida contra esta lista. Sin esta variable el login de la web responde 403
+  # `Invalid origin` -- no rompia los jobs anteriores porque sus tests no mandan `Origin`.
+  BETTER_AUTH_TRUSTED_ORIGINS: http://127.0.0.1:3000
   API_URL: http://127.0.0.1:3001
   NEXT_PUBLIC_API_URL: http://127.0.0.1:3001
+  # Navegador del e2e contenido en el workspace: el mismo path que usa `playwright.config.ts` por
+  # default, para que `playwright install` y la corrida no dependan del perfil del runner.
+  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
   # Nada de telemetria en un runner efimero.
   TURBO_TELEMETRY_DISABLED: "1"
   DO_NOT_TRACK: "1"
@@ -164,3 +176,69 @@ jobs:
       # scratch que el propio script crea, migra y borra.
       - name: Aislamiento por dueno desde la ruta de la aplicacion
         run: pnpm --filter @gestion/db db:check-rls
+
+  # T7: el vertical de pagos probado como lo usa una persona.
+  #
+  # Por que un job aparte y no un paso mas de `checks`: el e2e necesita un postgres MIGRADO y
+  # SEMBRADO (no solo migrado), y necesita psql para sembrar y borrar sus propias fixtures. Meterlo
+  # en `checks` mezclaria dos contratos distintos sobre la misma base y volveria ilegible un fallo
+  # ("¿fallo el build o el navegador?").
+  #
+  # Lo que este job NO comparte con los demas: nada. Arranca de un checkout limpio, una base
+  # virgen y un navegador recien instalado, asi que no depende de estado del runner.
+  e2e:
+    name: e2e (Playwright sobre el API y la web reales)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # La base que el suite siembra y limpia. Tiene que estar sembrada como la de desarrollo: el
+      # spec de estado vacio prueba que un dueno NUEVO no ve las filas de la demo, asi que la demo
+      # tiene que existir.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-throwaway
+          POSTGRES_DB: gestion_ci
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U ci -d gestion_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Activar corepack (pnpm 10.20.0 del packageManager)
+        run: corepack enable
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      # `psql` es el transporte que el suite usa para sus fixtures cuando existe DATABASE_URL
+      # (`apps/web/e2e/support/psql.ts`). Es el mismo cliente que instala el job `database`.
+      - name: Instalar el cliente de postgres
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Aplicar las 50 migraciones
+        run: pnpm --filter @gestion/db db:verify
+
+      - name: Sembrar la base (orden de S20)
+        run: pnpm --filter @gestion/db db:seed
+
+      # Solo Chromium: el config declara un unico proyecto y el suite no corre en Firefox ni en
+      # WebKit. `PLAYWRIGHT_BROWSERS_PATH` (env del workflow) apunta al workspace, igual que el
+      # default del config, para que install y corrida coincidan.
+      - name: Instalar Chromium (solo el navegador, con sus dependencias de sistema)
+        run: pnpm --filter @gestion/web exec playwright install --with-deps chromium
+
+      # Un solo comando: Playwright compila y levanta `apps/api` (`dist/main.js`) y la web
+      # (`next build && next start`) en `webServer`, y corre los 10 specs. Si un spec falla, el
+      # job falla: no hay `continue-on-error` ni reintentos que tapen un fallo.
+      - name: e2e del vertical de pagos
+        run: pnpm e2e

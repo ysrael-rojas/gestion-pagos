@@ -1,0 +1,215 @@
+// Usuario desechable por spec y sus fixtures, con borrado en orden de FK.
+//
+// Reglas, todas heredadas de `apps/api/test/support/fixtures.ts`:
+//
+// 1. El usuario se crea por el camino real de alta (`POST /api/auth/sign-up/email` del handler de
+//    Better Auth que monta Nest), no insertando filas a mano. El id sale de la respuesta.
+// 2. La contrasena se genera en runtime (`randomUUID`): no hay ninguna credencial en un archivo
+//    del repo, y cada corrida usa una distinta.
+// 3. Las fixtures de dominio (entidad, cuenta de caja, metodo, categoria, comprobante) se insertan
+//    por SQL como dueno de las tablas, igual que los seeds, SIEMPRE con `owner_id` explicito.
+//    No hay otra via: `apps/api` no expone escritura de cuentas ni de comprobantes.
+// 4. El teardown borra todo lo del dueno en orden de FK y termina en `auth.users`, que arrastra
+//    `auth.session` y `auth.account` por cascada. El dueno demo (`seed-demo.sql`) no se toca
+//    nunca: todas las clausulas son `owner_id = <uuid del usuario desechable>`.
+import { randomUUID } from "node:crypto";
+
+import { API_ORIGIN } from "./env";
+import { psqlLines, psqlValue, sqlText } from "./psql";
+
+/** Dueno desechable de un spec. `password` vive solo en memoria del test. */
+export interface Owner {
+	id: string;
+	email: string;
+	password: string;
+	/** Prefijo corto para nombres visibles en la UI (caja, entidad, comprobante). */
+	tag: string;
+}
+
+interface SignUpResponse {
+	user?: { id?: unknown };
+}
+
+/**
+ * Alta real de un dueno desechable.
+ *
+ * Better Auth exige cabecera `Origin` en los POST (proteccion CSRF) y sin ella responde
+ * `403 Missing or null Origin`. Node's fetch no la manda, asi que el suite la pone explicita y
+ * con el origen del API, que es su propio `baseURL` y por lo tanto un origen confiable. El
+ * navegador la manda solo, y por eso el login de la UI ejercita de verdad
+ * `BETTER_AUTH_TRUSTED_ORIGINS`.
+ */
+export async function signUpOwner(): Promise<Owner> {
+	const email = `e2e-${randomUUID()}@example.test`;
+	const password = randomUUID();
+	const response = await fetch(`${API_ORIGIN}/api/auth/sign-up/email`, {
+		method: "POST",
+		headers: { "content-type": "application/json", origin: API_ORIGIN },
+		body: JSON.stringify({ email, password, name: "E2E desechable" }),
+	});
+
+	const body = await response.text();
+
+	if (!response.ok) {
+		throw new Error(`El alta del usuario desechable fallo (${response.status}): ${body}`);
+	}
+
+	const parsed = JSON.parse(body) as SignUpResponse;
+	const id = parsed.user?.id;
+
+	if (typeof id !== "string" || id.length === 0) {
+		throw new Error(`Better Auth no devolvio el id del usuario creado: ${body}`);
+	}
+
+	// El alta emite una sesion propia que el suite no usa (el login de todos los specs es por el
+	// formulario). Se borra aca, con el dueno en un estado conocido: "tiene cuenta, sin
+	// sesiones". Sin esto, el spec de cerrar sesion compara contra una sesion heredada del alta.
+	psqlLines(`delete from auth.session where user_id = ${sqlText(id)};\n`);
+
+	return { id, email, password, tag: id.slice(0, 8) };
+}
+
+/** Fixtures de dominio que un spec puede pedir. */
+export interface ProvisionOptions {
+	entity?: boolean;
+	cashAccount?: boolean;
+	paymentMethod?: boolean;
+	receiptCategory?: boolean;
+	voucher?: boolean;
+	/** Importe del comprobante de venta. Default 1000. */
+	voucherTotal?: number;
+}
+
+export interface OwnerFixtures {
+	entity?: { id: string; name: string };
+	cashAccount?: { id: string; name: string };
+	paymentMethod?: { id: string; name: string; code: string };
+	receiptCategory?: { id: string; name: string };
+	voucher?: { id: string; number: string; total: number };
+}
+
+/**
+ * Crea las fixtures pedidas y devuelve sus ids y sus etiquetas visibles.
+ *
+ * El comprobante necesita una entidad, asi que pedirlo implica crearla: un comprobante sin
+ * entidad no existe en este esquema (`entity_id` es NOT NULL).
+ */
+export function provisionFixtures(owner: Owner, options: ProvisionOptions): OwnerFixtures {
+	const fixtures: OwnerFixtures = {};
+	const statements: string[] = [];
+	const ownerId = sqlText(owner.id);
+	const tag = owner.tag;
+
+	if (options.entity || options.voucher) {
+		const id = randomUUID();
+		const name = `E2E entidad ${tag}`;
+
+		statements.push(
+			`insert into public.entidad (id, document_type, document_number, name, billing_email, is_client, owner_id)
+			 values ('${id}', 'SIN_DOCUMENTO', '', ${sqlText(name)}, ${sqlText(`e2e-${tag}@example.test`)}, true, ${ownerId});`,
+		);
+		fixtures.entity = { id, name };
+	}
+
+	if (options.cashAccount) {
+		const id = randomUUID();
+		const name = `E2E caja ${tag}`;
+
+		statements.push(
+			`insert into public.cash_account (id, type, name, currency, opening_balance, opening_balance_date, owner_id)
+			 values ('${id}', 'CASH_BOX', ${sqlText(name)}, 'PEN', 0, current_date, ${ownerId});`,
+		);
+		fixtures.cashAccount = { id, name };
+	}
+
+	if (options.paymentMethod) {
+		const id = randomUUID();
+		const code = `E2E_${tag.toUpperCase()}`;
+
+		statements.push(
+			`insert into public.payment_method (id, owner_id, code, name)
+			 values ('${id}', ${ownerId}, ${sqlText(code)}, ${sqlText(`Metodo E2E ${tag}`)});`,
+		);
+		fixtures.paymentMethod = { id, name: `Metodo E2E ${tag}`, code };
+	}
+
+	if (options.receiptCategory) {
+		const id = randomUUID();
+
+		statements.push(
+			`insert into public.cash_receipt_category (id, owner_id, direction, name, code)
+			 values ('${id}', ${ownerId}, 'INGRESO', ${sqlText(`Categoria E2E ${tag}`)}, ${sqlText(`E2E_CAT_${tag.toUpperCase()}`)});`,
+		);
+		fixtures.receiptCategory = { id, name: `Categoria E2E ${tag}` };
+	}
+
+	if (options.voucher) {
+		const id = randomUUID();
+		const number = `E2E-${tag.toUpperCase()}-0001`;
+		const total = options.voucherTotal ?? 1000;
+
+		statements.push(
+			`insert into public.comprobante (id, entity_id, voucher_kind, voucher_type, voucher_number, issue_date, subtotal, igv, total, payment_type, owner_id)
+			 values ('${id}', '${fixtures.entity?.id}', 'VENTA', 'FACTURA', ${sqlText(number)}, current_date, ${total}, 0, ${total}, 'CONTADO', ${ownerId});`,
+		);
+		fixtures.voucher = { id, number, total };
+	}
+
+	if (statements.length > 0) {
+		psqlLines(`begin;\n${statements.join("\n")}\ncommit;\n`);
+	}
+
+
+	return fixtures;
+}
+
+/**
+ * Cuenta de caja de OTRO dueno, para probar que el dominio rechaza una cuenta ajena.
+ *
+ * No se usa la cuenta del dueno demo a proposito: el suite no depende del estado de los seeds.
+ * Se crea un segundo dueno desechable y se borra con el resto de sus fixtures.
+ */
+export function provisionForeignCashAccount(owner: Owner): { id: string; name: string } {
+	const id = randomUUID();
+	const name = `E2E caja ajena ${owner.tag}`;
+
+	psqlLines(
+		`insert into public.cash_account (id, type, name, currency, opening_balance, opening_balance_date, owner_id)
+		 values ('${id}', 'CASH_BOX', ${sqlText(name)}, 'PEN', 0, current_date, ${sqlText(owner.id)});\n`,
+	);
+
+	return { id, name };
+}
+
+/** Sesiones vivas del dueno en `auth.session`. Sirve para probar que cerrar sesion revoca. */
+export function countOwnerSessions(ownerId: string): number {
+	return Number(psqlValue(`select count(*) from auth.session where user_id = ${sqlText(ownerId)};`));
+}
+
+/**
+ * Borra todo lo del dueno, en orden de FK.
+ *
+ * Orden: `payment_allocation` y `petty_cash_vale` -> `payment` (RESTRICT) -> `comprobante` ->
+ * `entidad` -> las cuentas y catalogos -> `auth.users` (que arrastra sesiones y cuentas).
+ */
+export function deleteOwnerFixtures(ownerId: string): void {
+	const id = sqlText(ownerId);
+
+	psqlLines(
+		[
+			"begin;",
+			`delete from public.payment_allocation where owner_id = ${id};`,
+			`delete from public.petty_cash_vale where owner_id = ${id};`,
+			`delete from public.payment where owner_id = ${id};`,
+			`delete from public.comprobante where owner_id = ${id};`,
+			`delete from public.entidad where owner_id = ${id};`,
+			`delete from public.cash_close where owner_id = ${id};`,
+			`delete from public.cash_account where owner_id = ${id};`,
+			`delete from public.payment_method where owner_id = ${id};`,
+			`delete from public.cash_receipt_category where owner_id = ${id};`,
+			`delete from auth.users where id = ${id};`,
+			"commit;",
+			"",
+		].join("\n"),
+	);
+}

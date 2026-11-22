@@ -519,3 +519,25 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   acá (sin rutas de escritura). `receipt_sequence` avanzó a 104 por pagos reales de los tests. No
   probado: pestañas `?filtro=…`, el diálogo de asignación, el modal de detalle en su sección de
   asignación, el layout de impresión del recibo, y concurrencia (dos void/allocate en paralelo).
+- L68 (T7, Playwright): el worker **agotó su ciclo** (colgado 30 min con un `bash` corriendo, durante la
+  descarga de Chromium) pero el trabajo estaba completo al ir a mirar: 7 specs, soporte por psql con
+  transporte dual (docker local / `DATABASE_URL`+`PSQL_BIN` en CI), `playwright.config.ts` y el job
+  `e2e` del workflow. Se retomó el estado real en vez de repetir el intento, según la regla de límites
+  de worker. Chromium contenido en `.cache/ms-playwright` (744 MB, gitignored) para no depender del
+  perfil del usuario.
+- L69 (evidencia de T7, verificada por el padre): **10/10 tests verdes**, y los conteos del baseline
+  **idénticos antes y después** (entidad 9, comprobante 41, payment 45, payment_allocation 35,
+  cash_account 2, cash_receipt_category 7, payment_method 3, users 1, session 0, account 0). Los specs
+  cubren: redirect sin sesión, login por formulario, contraseña incorrecta mostrando el mensaje del
+  API, estado vacío de un dueño nuevo, alta con asignación, anulación, mensaje de dominio con cuenta
+  ajena e inexistente, y logout que revoca la sesión. `reuseExistingServer: false` con build de API y
+  web en cada corrida: un e2e contra un build viejo es peor que no tener e2e.
+- L70 (control negativo de T7): reemplacé `apiErrorMessage` por un mensaje genérico y el spec 06
+  **falló** (1 failed, con screenshot y trace); revert exacto verificado con `diff` contra la copia
+  previa. La suite es portante, no decorativa.
+- L71 (deuda L62 saldada): `playwright.config.ts` inyecta `BETTER_AUTH_TRUSTED_ORIGINS` al arrancar el
+  API, así que el login del e2e ejercita la validación de origen de Better Auth de verdad. El job
+  `e2e` del workflow arranca los dos procesos con build desde el árbol actual.
+- L72 (nota de operación): el e2e corre en `E2E_WEB_PORT`/`E2E_API_PORT` (por defecto 3000/3001). En
+  esta máquina había un `node.exe` (PID 16216) ocupando 3001, ajeno a la sesión: no se mató, se corrió
+  en 3100/3101.

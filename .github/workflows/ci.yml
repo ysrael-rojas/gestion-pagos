@@ -18,8 +18,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Sin filtro de rama base: los PR encadenados apuntan a la rama del slice anterior, y ese PR
+  # tambien necesita correr CI. El gate de merge sigue estando en main.
   pull_request:
-    branches: [main]
   # Permite correr el workflow a mano desde la pestana Actions, sin abrir un PR. Se usa para
   # verificar el pipeline en una rama de trabajo antes de mergear.
   workflow_dispatch:

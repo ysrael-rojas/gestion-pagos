@@ -7,11 +7,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-transform-types \"lib/**/*.test.ts\""
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@gestion/shared": "workspace:*",
+    "better-auth": "^1.3.26",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "lucide-react": "^1.48.0",

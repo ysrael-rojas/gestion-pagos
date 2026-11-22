@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatCurrency, paymentSchema } from "@gestion/shared";
+import { getSessionUser } from "@/lib/auth/session";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -98,17 +99,27 @@ const SHELL_ITEMS: ReadonlyArray<{ path: string; description: string }> = [
   { path: "app/globals.css", description: "Entrada de Tailwind v4 con el tema del origen, verbatim." },
   { path: "hooks/use-mobile.ts", description: "Lo usa components/ui/sidebar.tsx; portado junto al kit." },
   { path: "lib/api/client.ts", description: "Cliente tipado de apps/api: /health, /payments y /contract/payments." },
-  { path: "app/health/page.tsx", description: "Ruta que llama GET /health a traves del cliente." },
+  { path: "lib/auth/client.ts", description: "Cliente de Better Auth (better-auth/react) apuntando a /api/auth de apps/api." },
+  { path: "lib/auth/session.ts", description: "Sesion del servidor: getSessionUser, signInWithEmail y signOutSession." },
+  { path: "app/(app)/layout.tsx", description: "Shell autenticado: sin sesion redirige a /login antes de renderizar." },
+  { path: "app/(app)/health/page.tsx", description: "Ruta que llama GET /health a traves del cliente, ya dentro del shell." },
 ];
 
-export default function HomePage() {
+/**
+ * Landing minimo del shell. Muestra la sesion que resolvio el layout —la misma que usa el
+ * navbar— para que el HTML servido pruebe de quien es la sesion, y conserva el inventario del
+ * kit de UI de T5a, que es el contenido real con el que se ejercita el shell.
+ */
+export default async function HomePage() {
+  const user = await getSessionUser();
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10">
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-heading text-3xl font-bold tracking-tight">Gestión</h1>
           <Badge>@gestion/web</Badge>
-          <Badge variant="outline">T5a · andamiaje</Badge>
+          <Badge variant="outline">T5b2 · shell</Badge>
+          <Badge variant="secondary">sesión: {user?.email ?? "sin sesión"}</Badge>
         </div>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Frontend del monorepo: Next.js 16 (App Router), React 19 y Tailwind v4, con el kit de

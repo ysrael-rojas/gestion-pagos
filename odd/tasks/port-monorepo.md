@@ -466,3 +466,19 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   paquete. El run que importa es el del PR. `probe/one-line` quedó como rama **default** del repo
   (era la única al momento del primer push) y GitHub no permite borrarla hasta que el default pase a
   `main` en Settings.
+- L58 (T5b2, shell + login, delegada): `apps/web` tiene cliente `better-auth/react`, `/login` con
+  email+password que muestra el mensaje del API, layout autenticado con chequeo de sesión en servidor
+  y cierre de sesión. Sin verticales de dominio. Tres decisiones que el stack forzó, todas medidas:
+  (a) `apps/api` no habilita CORS, así que el auth sale del servidor de Next y la cookie viaja
+  HttpOnly — el navegador nunca habla con :3001; (b) Better Auth valida el origen contra
+  `BETTER_AUTH_TRUSTED_ORIGINS`, que hoy sólo se pasa por entorno y **no está en el repo** (deuda
+  abierta: agregarlo a `.github/CI.md` y al workflow); (c) `next/headers` re-codificaba la cookie
+  (`encodeURIComponent`) y la sesión quedaba doblemente codificada: `get-session` devolvía `null` con
+  una sesión válida. Corregido en `apps/web/lib/auth/cookies.ts` y fijado con 9 tests.
+- L59 (evidencia de T5b2, verificada por el padre): `typecheck` 0 en 4 paquetes, 9/9 tests del web,
+  build con las rutas `ƒ /`, `ƒ /health`, `ƒ /login`, `○ /_not-found`. E2E real del worker: registro
+  de usuario desechable por la API, login por el formulario (303 + cookie HttpOnly), `/` 200 con el
+  shell y el correo de la sesión, contexto nuevo sin cookie → 307 a `/login`, logout → 303 y la
+  sesión revocada en la base, y conteos de la base iguales al baseline después de borrar el usuario.
+- L60 (límite del entorno): `/tmp` desapareció a mitad de sesión (los redirects fallaban con "could
+  not find /tmp"), así que las herramientas pasaron a usar `.cache/tmp/` dentro del proyecto.

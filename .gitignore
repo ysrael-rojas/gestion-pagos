@@ -1,0 +1,38 @@
+# Variables de entorno (¡nunca subir credenciales!)
+.env
+.env.dev
+.env.prod
+
+# Datos locales de Docker (si usaras bind mounts)
+# Anclado a la raiz: sin la barra inicial se tragaba packages/shared/src/lib/data/
+/data/
+
+# Node / pnpm
+node_modules/
+.pnpm-store/
+
+# Builds
+dist/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Tests
+coverage/
+playwright-report/
+test-results/
+
+# Artefactos de herramientas y del SO
+.cache/
+codegraph/
+Microsoft/
+.DS_Store
+Thumbs.db
+
+# Next.js generados
+next-env.d.ts
+AGENTS.md
+
+# Worktrees locales
+.worktrees/

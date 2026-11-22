@@ -1,0 +1,10 @@
+# Convencion de fin de linea: LF en todo el contenido de texto.
+# Sin esto, un checkout en Windows guarda CRLF y la misma migracion aparece como
+# 500 lineas modificadas al reconstruir la historia o al revisar un PR.
+* text=auto eol=lf
+
+# Binarios: sin conversion ni diff de texto.
+*.ico binary
+*.png binary
+*.jpg binary
+*.exe binary

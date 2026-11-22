@@ -1,0 +1,21 @@
+{
+  "name": "gestion-pagos",
+  "private": true,
+  "packageManager": "pnpm@10.20.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:up": "docker compose --profile dev up -d",
+    "db:down": "docker compose --profile dev down"
+  },
+  "devDependencies": {
+    "turbo": "^2.11.13",
+    "typescript": "^7.0.2"
+  }
+}

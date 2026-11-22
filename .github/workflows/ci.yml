@@ -1,0 +1,165 @@
+name: CI
+
+# Por que existe: los tres defectos reales del port los encontro la suerte, no un pipeline --
+#   (a) RLS que no se aplicaba (las politicas eran `TO authenticated` y el rol dueno no las
+#       forzaba), (b) un GRANT masivo que deshizo el hardening a nivel de columna del historial
+#       financiero, (c) un build frio de `apps/web` que no resolvia los imports del paquete
+#       compartido porque un build anterior habia dejado la cache de Turbopack.
+# Este workflow convierte esos tres hallazgos en checks que corren solos:
+#   - `checks`   compila y prueba todo el monorepo, e incluye el build EN FRIO de la web (c),
+#   - `database` aplica las migraciones y los seeds sobre una base virgen y corre las dos suites
+#                de RLS (a) + el drift guard que compara el esquema real con un snapshot (b).
+#
+# Lo que NO hay aca: un paso de lint. Ningun paquete del monorepo define un script `lint`, asi
+# que `turbo run lint` no ejecuta ninguna tarea (sale 0 con "No tasks were executed"). Un paso
+# asi quedaria verde sin mirar una sola linea: no se agrega hasta que exista un linter
+# configurado de verdad.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Permite correr el workflow a mano desde la pestana Actions, sin abrir un PR. Se usa para
+  # verificar el pipeline en una rama de trabajo antes de mergear.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un run por rama/PR: si se pushea de nuevo, se cancela el anterior.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Valores de relleno para el postgres efimero del runner. No son secretos: la base vive lo que
+  # dura el job y se descarta con la maquina. La lista completa de variables que el codigo lee
+  # esta en `.github/CI.md`.
+  DATABASE_URL: postgresql://ci:ci-throwaway@127.0.0.1:5432/gestion_ci
+  BETTER_AUTH_SECRET: ci-throwaway-secret-no-persistido
+  BETTER_AUTH_URL: http://127.0.0.1:3001
+  API_URL: http://127.0.0.1:3001
+  NEXT_PUBLIC_API_URL: http://127.0.0.1:3001
+  # Nada de telemetria en un runner efimero.
+  TURBO_TELEMETRY_DISABLED: "1"
+  DO_NOT_TRACK: "1"
+
+jobs:
+  checks:
+    name: checks (tipos, tests, build frio)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # La base **no** es opcional: `apps/api` corre sus e2e contra la base sembrada (33 tests que
+      # emiten sesiones reales de Better Auth y atraviesan `withOwner`). Sin servicio, `pnpm test`
+      # falla por falta de DATABASE_URL.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-throwaway
+          POSTGRES_DB: gestion_ci
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U ci -d gestion_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # `packageManager: pnpm@10.20.0` en package.json: corepack instala exactamente esa version.
+      # No se agrega una accion de pnpm (ni `npm i -g pnpm`) porque eso instalaria otra.
+      - name: Activar corepack (pnpm 10.20.0 del packageManager)
+        run: corepack enable
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Aplicar las migraciones
+        run: pnpm --filter @gestion/db db:verify
+
+      - name: Sembrar la base (orden de S20)
+        run: pnpm --filter @gestion/db db:seed
+
+      - name: Tipos
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Build (todos los paquetes)
+        run: pnpm build
+
+      # El check que faltaba: con `.next` borrado, Turbopack no tiene cache de un build anterior,
+      # asi que un import sin resolver no queda tapado (L39: un build verde apoyado en la cache de
+      # Turbopack escondia 6 `Module not found`). Corre directo con `next build`, sin la cache de
+      # Turborepo en el medio.
+      - name: Build frio de la web (rm -rf .next && build)
+        run: rm -rf apps/web/.next && pnpm --filter @gestion/web build
+
+  database:
+    name: database (migraciones, seeds, RLS y drift)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # Base virgen: es la unica forma de probar que las 50 migraciones aplican de cero, que los
+      # seeds corren en el orden documentado y que la auditoria de RLS encuentra lo que S19 dice.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-throwaway
+          POSTGRES_DB: gestion_ci
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U ci -d gestion_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Activar corepack (pnpm 10.20.0 del packageManager)
+        run: corepack enable
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      # `db:verify-rls` corre el suite con un psql local cuando existe DATABASE_URL (el camino de
+      # Docker sigue siendo el default en una maquina de desarrollo).
+      - name: Instalar el cliente de postgres
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Aplicar las 50 migraciones
+        run: pnpm --filter @gestion/db db:verify
+
+      # Drift guard: el esquema de la base tiene que ser exactamente el del snapshot commiteado.
+      # Si alguien toco la base a mano (o cambio una migracion sin regenerar el snapshot), esto
+      # falla mostrando el diff. Va antes de los seeds: es un contrato de esquema, no de datos.
+      - name: Drift guard (esquema real vs snapshot)
+        run: pnpm --filter @gestion/db db:dump --check
+
+      - name: Sembrar la base (orden de S20)
+        run: pnpm --filter @gestion/db db:seed
+
+      # Auditoria de S19: los 5 primeros bloques DEBEN fallar con 42501 y el 6 debe pasar. El
+      # runner clasifica la salida y falla nombrando el bloque ante cualquier desvio.
+      - name: Auditoria de RLS (S19)
+        run: pnpm --filter @gestion/db db:verify-rls
+
+      # 42 aserciones end-to-end: RLS + privilegios + `set local role authenticated`, en una base
+      # scratch que el propio script crea, migra y borra.
+      - name: Aislamiento por dueno desde la ruta de la aplicacion
+        run: pnpm --filter @gestion/db db:check-rls

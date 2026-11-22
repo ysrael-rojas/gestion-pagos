@@ -1,0 +1,46 @@
+import type {
+  PaymentType,
+  SaleStatus,
+  VoucherType,
+} from "../../components/ventas/types";
+
+export interface SelectOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+export const VOUCHER_TYPES: SelectOption<VoucherType>[] = [
+  { value: "FACTURA", label: "Factura" },
+  { value: "BOLETA", label: "Boleta" },
+  { value: "NOTA_VENTA", label: "Nota de venta" },
+];
+
+/**
+ * Tipos base (los únicos cobrables/pagables). Las notas de crédito/débito y el
+ * comprobante de retención ajustan a un comprobante base y quedan fuera de
+ * listados de ventas/compras, cartera y selector de pagos.
+ */
+export const BASE_VOUCHER_TYPES: VoucherType[] = VOUCHER_TYPES.map(
+  (option) => option.value
+);
+
+export const PAYMENT_TYPES: SelectOption<PaymentType>[] = [
+  { value: "CONTADO", label: "Contado" },
+  { value: "CREDITO", label: "Crédito" },
+];
+
+export const SALE_STATUSES: SelectOption<SaleStatus>[] = [
+  { value: "PAGADO", label: "Pagado" },
+  { value: "PENDIENTE", label: "Pendiente" },
+];
+
+export const DEFAULT_SALE_STATUS: SaleStatus = "PENDIENTE";
+
+export const DEFAULT_CREDIT_DAYS = 30;
+
+export function getOptionLabel<T extends string>(
+  options: SelectOption<T>[],
+  value: T
+): string {
+  return options.find((option) => option.value === value)?.label ?? value;
+}

@@ -1,23 +1,6 @@
-// Entidad (cliente o proveedor), portado tal cual de `components/clientes/types.ts` del origen.
+// Re-export, not a copy: the shape lives in `@gestion/shared` (S6 of the clientes feature doc).
 //
-// El vertical de pagos lo usa para el autocomplete y para resolver nombres por id: los dos
-// necesitan solo `id`, `name` y el par documento, pero se mantiene la forma completa porque es el
-// contrato que devuelve `GET /entities` y lo que T5c va a reusar para el vertical de clientes.
-export type DocumentType =
-  | "RUC"
-  | "DNI"
-  | "CARNET_EXTRANJERIA"
-  | "SIN_DOCUMENTO";
-
-export interface Client {
-  id: string;
-  documentType: DocumentType;
-  documentNumber: string;
-  name: string;
-  address: string;
-  phone: string;
-  contactName: string;
-  billingEmail: string;
-  managementEmail: string;
-  isSupplier?: boolean;
-}
+// Before T5c this file duplicated `packages/shared/src/components/clientes/types.ts` byte for
+// byte, so the two could drift silently. The path stays because the pagos vertical, the
+// clientes provider and the data layer all already import `@/components/clientes/types`.
+export type { Client, DocumentType } from "@gestion/shared/components/clientes/types.ts";

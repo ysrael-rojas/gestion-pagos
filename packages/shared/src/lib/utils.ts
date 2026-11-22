@@ -1,0 +1,37 @@
+export { cn } from "cn";
+
+export type Currency = "PEN" | "USD";
+
+export function formatCurrency(value: number, currency: Currency = "PEN"): string {
+  return new Intl.NumberFormat("es-PE", {
+    style: "currency",
+    currency,
+    // narrowSymbol: USD se muestra como "$" y PEN como "S/" en todo ICU.
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+export function formatDate(value: string): string {
+  const [year, month, day] = value.split("-");
+
+  if (!year || !month || !day) {
+    return value;
+  }
+
+  return `${day}/${month}/${year}`;
+}
+
+export function getTodayLocalDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** Redondea a 2 decimales para no arrastrar ruido de punto flotante. */
+export function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}

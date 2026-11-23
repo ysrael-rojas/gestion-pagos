@@ -44,7 +44,7 @@ executed". Agregar el paso seria un verde vacio.
 | 7 | **drift guard** | `pnpm --filter @gestion/db db:dump --check` |
 | 8 | seeds en el orden de S20 | `pnpm --filter @gestion/db db:seed` |
 | 9 | auditoria de RLS (S19, 8 bloques) | `pnpm --filter @gestion/db db:verify-rls` |
-| 10 | aislamiento por dueno (46 aserciones) | `pnpm --filter @gestion/db db:check-rls` |
+| 10 | aislamiento por dueno (47 aserciones) | `pnpm --filter @gestion/db db:check-rls` |
 
 ### `e2e` -- los verticales de pagos, clientes y cajas-bancos con Playwright
 

@@ -56,6 +56,11 @@
 //           que reaplicar despues de su `grant ... on all tables`), y un UPDATE real a una
 //           columna no concedida muere con 42501 `permission denied`, no con el mensaje de un
 //           trigger de dominio.
+//        M. las tablas de cajas y bancos que la app escribe SOLO por RPC no conservan UPDATE ni
+//           DELETE: `authenticated` conserva SELECT e INSERT, y un `grant ... on all tables in
+//           schema public` posterior (que es como se concedieron hoy) no puede reintroducir el
+//           privilegio en silencio. F y G afirman el mismo estado por comportamiento (42501 antes
+//           de la politica); M lo fija sobre el catalogo, tabla por tabla.
 //   5. borra la base scratch (aunque falle) y sale 1 nombrando la asercion rota.
 //
 // Las aserciones no se pueden cumplir "por accidente": si falta `set local role authenticated`
@@ -553,25 +558,30 @@ try {
 	}
 
 	// -----------------------------------------------------------------------
-	// F) El dueno A no puede modificar la fila del dueno B. Un UPDATE sobre una fila que la
-	//    politica de UPDATE no deja ver afecta CERO filas (no da error): hay que afirmar las dos
-	//    cosas, cero filas afectadas y fila ajena intacta. Con la politica aflojada el update
-	//    afectaria 1 fila (o moriria contra `WITH CHECK`/el trigger de dominio), y cualquiera de
-	//    las dos cosas rompe la asercion.
+	// F) El dueno A no puede modificar la fila del dueno B, y el motivo del rechazo se afirma
+	//    porque no es el mismo en todas las tablas:
+	//      - `entidad` y `payment` conservan el privilegio de UPDATE y no tienen politica de UPDATE
+	//        para las filas ajenas, asi que el update afecta CERO filas (no da error): hay que
+	//        afirmar las dos cosas, cero filas afectadas y fila ajena intacta;
+	//      - `cash_transfer` y `petty_cash_vale` ya no conservan el privilegio (grupo M), asi que
+	//        el update ni llega a la politica: muere con 42501 y la fila queda intacta.
+	//    Con la politica aflojada el update afectaria 1 fila (o moriria contra `WITH CHECK`/el
+	//    trigger de dominio), y cualquiera de las dos cosas rompe la asercion.
 	// -----------------------------------------------------------------------
 	const CROSS_OWNER_UPDATES = [
 		{ table: "entidad", column: "name", mutation: "name = 'Intruso'", target: entidadB, expected: "Cliente del dueno B" },
 		{ table: "payment", column: "void_reason", mutation: "void_reason = 'intruso'", target: paymentB, expected: null },
-		// Vertical de cajas y bancos: no hay politica de UPDATE en estas tablas (su politica es
-		// SELECT, y en el vale ademas INSERT), asi que el update cruzado afecta 0 filas por RLS y no
-		// por privilegio (el GRANT de UPDATE sigue ahi: es la deuda L12a del doc del vertical,
-		// documentada y no cerrada aca).
-		{ table: "cash_transfer", column: "notes", mutation: "notes = 'intruso'", target: cajasB.transfer, expected: "transferencia check" },
-		{ table: "petty_cash_vale", column: "concept", mutation: "concept = 'intruso'", target: cajasB.vale, expected: "Compra check" },
+		// Vertical de cajas y bancos: estas dos tablas ya no conservan el privilegio de UPDATE (la
+		// app las escribe solo por funciones SECURITY DEFINER), asi que el rechazo del update
+		// cruzado cambio de capa: ya no es RLS con 0 filas, es 42501 antes de evaluar la politica.
+		// Afirmar "0 filas" aca seria afirmar algo distinto de lo que pasa, y una prueba vacua.
+		{ table: "cash_transfer", column: "notes", mutation: "notes = 'intruso'", target: cajasB.transfer, expected: "transferencia check", refusal: "missing-privilege" },
+		{ table: "petty_cash_vale", column: "concept", mutation: "concept = 'intruso'", target: cajasB.vale, expected: "Compra check", refusal: "missing-privilege" },
 	];
 
 	for (const target of CROSS_OWNER_UPDATES) {
 		const name = `F) el dueno A no puede modificar la fila del dueno B en ${target.table}`;
+		const byMissingPrivilege = target.refusal === "missing-privilege";
 		try {
 			const { value: affected, error } = await attempt(
 				{ role: "authenticated", ownerId: ownerA },
@@ -590,7 +600,24 @@ try {
 			);
 			const observed = after.rows[0]?.value ?? null;
 
-			if (error) {
+			if (byMissingPrivilege) {
+				if (!error) {
+					fail(
+						name,
+						`el update cruzado se acepto (${affected} fila(s) afectadas): el privilegio de UPDATE esta concedido`,
+					);
+				} else if (error.code !== "42501" || !/permission denied/i.test(error.message)) {
+					fail(
+						name,
+						`se esperaba 42501 "permission denied" (privilegio de UPDATE ausente), se observo ` +
+							`${show(error.code)}: ${error.message}`,
+					);
+				} else if (observed !== target.expected) {
+					fail(name, `la fila del dueno B cambio de valor: ${show(observed)}`);
+				} else {
+					ok(name, `42501 ${error.message}, fila del dueno B intacta (sin privilegio de UPDATE)`);
+				}
+			} else if (error) {
 				fail(name, `el update cruzado devolvio un error en vez de 0 filas: ${describe(error)}`);
 			} else if (affected !== 0) {
 				fail(name, `el update afecto ${affected} fila(s) del dueno B`);
@@ -612,15 +639,15 @@ try {
 	//      - `payment` no tiene privilegio de DELETE (hardening del historial financiero), asi que
 	//        el borrado ni llega a la politica: muere con 42501. Afirmar "0 filas" ahi seria
 	//        afirmar algo distinto de lo que pasa, y una prueba vacua.
+	//      - `cash_transfer` y `bank_reconciliation` dejaron de conservar DELETE por el mismo
+	//        motivo que `payment`: la app las escribe solo por RPC, y el privilegio se revoca
+	//        (grupo M). El rechazo es 42501, no 0 filas.
 	// -----------------------------------------------------------------------
 	const CROSS_OWNER_DELETES = [
 		{ table: "entidad", target: entidadB, refusal: "missing-policy" },
 		{ table: "payment", target: paymentB, refusal: "missing-privilege" },
-		// Vertical de cajas y bancos: DELETE concedido y sin politica de DELETE, o sea el mismo caso
-		// que `entidad`. Se afirma 0 filas, no 42501: si alguien revoca el privilegio esta asercion
-		// falla y hay que decidir cual de los dos rechazos es el correcto, en vez de aceptar los dos.
-		{ table: "cash_transfer", target: cajasB.transfer, refusal: "missing-policy" },
-		{ table: "bank_reconciliation", target: cajasB.reconciliation, refusal: "missing-policy" },
+		{ table: "cash_transfer", target: cajasB.transfer, refusal: "missing-privilege" },
+		{ table: "bank_reconciliation", target: cajasB.reconciliation, refusal: "missing-privilege" },
 	];
 
 	for (const target of CROSS_OWNER_DELETES) {
@@ -1230,6 +1257,76 @@ try {
 	} catch (error) {
 		fail(
 			"L) un UPDATE real a una columna no concedida de payment muere con 42501",
+			`la verificacion fallo: ${describe(error)}`,
+		);
+	}
+
+	// -----------------------------------------------------------------------
+	// M) Las tablas de cajas y bancos que la app escribe SOLO por funciones `SECURITY DEFINER`
+	//    (`void_petty_cash_vale`, `close_cash_account`, `register_cash_count`,
+	//    `create_cash_transfer`, `save_bank_reconciliation`) no conservan `UPDATE` ni `DELETE`:
+	//    esas funciones corren como el dueno de la tabla, asi que el rol de la aplicacion no
+	//    necesita el privilegio. `SELECT` e `INSERT` se conservan (son la via de lectura y de las
+	//    rutas que no pasan por RPC).
+	//
+	//    Por que una asercion de catalogo y no solo el comportamiento de F y G: el privilegio se
+	//    concedio con un `grant select, insert, update, delete on all tables in schema public`
+	//    (`20261029101500:96`), y ese grant es idempotente y masivo. Un archivo futuro que lo
+	//    repita devuelve el privilegio a TODAS estas tablas sin tocar este script; F y G lo
+	//    detectarian, pero tabla por tabla y solo en las tres que siembran fixtures. Esta matriz
+	//    nombra las siete, con la forma exacta del estado al que se converge.
+	// -----------------------------------------------------------------------
+	try {
+		const name = "M) authenticated no conserva UPDATE ni DELETE en las tablas RPC-only de cajas y bancos";
+		const tables = [
+			"bank_reconciliation",
+			"bank_reconciliation_item",
+			"cash_close_denomination",
+			"cash_count",
+			"cash_count_denomination",
+			"cash_transfer",
+			"petty_cash_vale",
+		];
+		const problems = [];
+
+		const { rows } = await scratch.query(
+			`select c.relname as table_name,
+			        has_table_privilege('authenticated', c.oid, 'select') as can_select,
+			        has_table_privilege('authenticated', c.oid, 'insert') as can_insert,
+			        has_table_privilege('authenticated', c.oid, 'update') as can_update,
+			        has_table_privilege('authenticated', c.oid, 'delete') as can_delete
+			   from pg_class c
+			   join pg_namespace n on n.oid = c.relnamespace
+			  where n.nspname = 'public' and c.relkind = 'r'
+			    and c.relname = any($1::text[])
+			  order by c.relname`,
+			[tables],
+		);
+
+		if (rows.length !== tables.length) {
+			problems.push(
+				`el catalogo devolvio ${rows.length} de ${tables.length} tabla(s) de cajas y bancos`,
+			);
+		}
+		for (const row of rows) {
+			if (!row.can_select) problems.push(`authenticated perdio el SELECT sobre ${row.table_name}`);
+			if (!row.can_insert) problems.push(`authenticated perdio el INSERT sobre ${row.table_name}`);
+			if (row.can_update) problems.push(`authenticated SI tiene UPDATE sobre ${row.table_name}`);
+			if (row.can_delete) problems.push(`authenticated SI tiene DELETE sobre ${row.table_name}`);
+		}
+
+		if (problems.length > 0) {
+			fail(name, problems.join("; "));
+		} else {
+			ok(
+				name,
+				`${rows.length} tabla(s) con SELECT e INSERT, sin UPDATE ni DELETE: ` +
+					rows.map((row) => row.table_name).join(", "),
+			);
+		}
+	} catch (error) {
+		fail(
+			"M) authenticated no conserva UPDATE ni DELETE en las tablas RPC-only de cajas y bancos",
 			`la verificacion fallo: ${describe(error)}`,
 		);
 	}

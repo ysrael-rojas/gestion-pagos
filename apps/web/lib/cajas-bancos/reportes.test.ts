@@ -2,9 +2,9 @@
 //
 // Port de `tests/unit/lib/caja/reportes.test.ts` del origen (vitest) a `node:test`. Las dos
 // funciones son las que arman el acta impresa: la secuencia de recibos del periodo (SPEC 49) y
-// los totales del extracto (SPEC 51). `summarizeStatement` no tiene consumidor en este slice (la
-// tabla de movimientos del reporte usa los recibos directos y las transferencias son C6), pero la
-// regla se prueba aca porque es pura y es la que la pantalla de extractos usara sin cambios.
+// los totales del extracto (SPEC 51). `summarizeStatement` no tenia consumidor en C5 (la tabla de
+// movimientos del reporte usaba los recibos directos); desde C6 lo consume la pantalla de extractos,
+// asi que la regla que se prueba aca es la que se ve: los anulados no suman.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 

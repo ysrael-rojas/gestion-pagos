@@ -32,6 +32,10 @@ const ALLOWED_PREFIXES = new Set([
   // C4: cierres y arqueos. Las dos escrituras van por POST (las RPC del API), igual que el resto.
   "cash-closes",
   "cash-counts",
+  // C6: transferencias entre cuentas y caja chica (vales y reposicion). Las cuatro escrituras son
+  // RPC del API por POST; sin estos dos prefijos el navegador recibe 404 del puente.
+  "cash-transfers",
+  "petty-cash",
   "payment-methods",
   "receipt-categories",
   "catalogs",

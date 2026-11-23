@@ -525,7 +525,16 @@ export function resolveApiBase(): string {
   return typeof window === "undefined" ? API_BASE_URL : BROWSER_API_BASE_URL;
 }
 
-async function request<T>(
+/**
+ * Llamada JSON al API con el contrato unico del frontend: base segun donde corra, `ApiError` con
+ * el `message` del dominio intacto y `undefined` en 204.
+ *
+ * Es la unica implementacion de transporte del repo. Los modulos de un vertical que no pueden
+ * escribir en este archivo (por ejemplo `lib/cajas-bancos/transporte.ts`) la importan en vez de
+ * copiar el `fetch`: dos `fetch` divergen en lo que importa (errores, credenciales, no-store), y
+ * eso fue exactamente la deuda que dejo C6 del vertical de cajas-bancos.
+ */
+export async function request<T>(
   path: string,
   options: {
     method?: "GET" | "POST" | "PATCH";

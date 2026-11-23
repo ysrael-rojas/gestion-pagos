@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { addDays, firstOpenDate, isDateClosed, suggestedPeriodEnd } from "./periodo.ts";
+import { addDays, firstOpenDate, getMonthRange, isDateClosed, suggestedPeriodEnd } from "./periodo.ts";
 
 describe("suggestedPeriodEnd", () => {
   // 2026-10-06 es martes.
@@ -51,6 +51,27 @@ describe("firstOpenDate", () => {
 
   it("es hoy cuando la cuenta no tiene cierres", () => {
     assert.equal(firstOpenDate(null, "2026-11-05"), "2026-11-05");
+  });
+});
+
+describe("getMonthRange", () => {
+  it("devuelve el primer y el ultimo dia del mes de la fecha", () => {
+    assert.deepEqual(getMonthRange("2026-10-06"), {
+      start: "2026-10-01",
+      end: "2026-10-31",
+    });
+  });
+
+  it("respeta febrero en ano bisiesto y no bisiesto", () => {
+    assert.equal(getMonthRange("2028-02-10").end, "2028-02-29");
+    assert.equal(getMonthRange("2027-02-10").end, "2027-02-28");
+  });
+
+  it("cierra diciembre en el mismo ano", () => {
+    assert.deepEqual(getMonthRange("2026-12-20"), {
+      start: "2026-12-01",
+      end: "2026-12-31",
+    });
   });
 });
 

@@ -4,10 +4,12 @@
 // `toPen`, que son las dos funciones que el listado de cuentas consume para mostrar el total
 // consolidado, el saldo en cajas, el saldo en bancos y el "% del total" de cada fila.
 //
-// QUE NO SE PORTA Y POR QUE: `getMonthRange`, `summarizeCashFlow` y `FlowLike` son el flujo del
-// mes del dashboard (`/cajas-bancos`, C7) y `summarizeCashFlow` suma importes de pagos, cosa que
-// hoy solo necesita esa pantalla. Portarlos sin consumidor agregaria una segunda aritmetica de
-// dinero a la web antes de tiempo; C7 los trae con su pantalla.
+// QUE NO SE PORTA Y POR QUE: `summarizeCashFlow` y `FlowLike` son el flujo del mes del dashboard
+// (`/cajas-bancos`, C7) y suman importes de pagos, cosa que hoy solo necesita esa pantalla.
+// Portarlos sin consumidor agregaria una segunda aritmetica de dinero a la web antes de tiempo; C7
+// los trae con su pantalla. `getMonthRange` (el rango del mes que usa ese flujo) SI esta portado,
+// en `lib/cajas-bancos/periodo.ts`: es aritmetica de calendario, no de dinero, y el extracto de C6
+// lo necesita para el rango inicial. C7 lo importa de ahi en vez de reescribirlo.
 //
 // S2 — El SALDO no se calcula aca: entra ya calculado por la base en `balance`
 // (`GET /cash-positions`). Lo unico que hace este archivo es sumar esos saldos para mostrarlos

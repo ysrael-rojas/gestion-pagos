@@ -9,9 +9,9 @@
 //   listLastMovementDates()                 -> ultimo recibo no anulado por cuenta (origen: 478-500)
 //
 // La mitad de ESCRITURA (`createCashTransfer`, `createPayment` como movimiento de caja, vales de
-// caja chica) NO vive aca todavia: son C6 y C8. Cuando lleguen, siguen el mismo contrato: el
-// origen hablaba PostgREST con la sesion de Supabase y aca se consume `apps/api` (S8 del doc
-// padre), sin cambiar la forma de los datos.
+// caja chica) no vive aca: llego en C6 y esta en `transferencias.ts`, `caja-chica.ts` y
+// `movimientos.ts`, con el mismo contrato. El origen hablaba PostgREST con la sesion de Supabase y
+// aca se consume `apps/api` (S8 del doc padre), sin cambiar la forma de los datos.
 //
 // QUE SE CONSERVA Y QUE NO:
 //

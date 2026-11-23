@@ -12,10 +12,22 @@
 // (`opening_balance + ingresos − egresos ± transferencias`, sin anulados). Este archivo solo suma
 // esos saldos para mostrarlos juntos, y convierte a soles con el TC configurado (SPEC 52).
 //
-// QUE NO SE PORTA (C6): la columna de acciones con "Movimiento" y "Vales", y el boton "Transferir".
-// En el origen abrian `CashMovementModal`, `CashTransferModal` y `PettyCashPanel`, tres pantallas de
-// transferencias y caja chica cuya API (`POST /cash-transfers`, vales de caja chica) todavia no
-// esta expuesta. Ofrecer los botones sin esas escrituras daria un 404 disfrazado de accion.
+// QUE SE PORTA EN C6: la columna de acciones con "Movimiento" y "Vales", y el boton "Transferir"
+// del encabezado. Los tres abren las pantallas de transferencias y caja chica, que ya tienen API
+// propia (`POST /cash-transfers`, `POST /petty-cash/*`) y cuyos componentes llegan en este slice.
+//
+//   Transferir  `CashTransferModal` -> `POST /cash-transfers` (RPC `create_cash_transfer`).
+//   Movimiento  `CashMovementModal` -> `POST /payments` con `isCashMovement: true` (S8). Un
+//               movimiento de caja NO es una ruta nueva del API.
+//   Vales       `PettyCashPanel` (solo cajas chicas) -> vales, reposicion y arqueo por RPC.
+//
+// DESVIO DELIBERADO: las tres pantallas reciben la fila COMPLETA de la cuenta (`accounts` del
+// provider) y no la posicion plana de esta tabla, porque necesitan el fondo de cambio, el custodio,
+// el limite por vale y la periodicidad, que `GET /cash-positions` no devuelve. La lista se
+// INTERSECTA con las posiciones para no ofrecer una cuenta inactiva: `GET /cash-positions` devuelve
+// una fila por cuenta viva Y ACTIVA, y `GET /cash-accounts` no filtra por `is_active`, asi que el
+// origen nunca ofrecia una cuenta dada de baja y aca tampoco. Es la misma fila de la misma cuenta:
+// el id de la posicion y el de la cuenta coinciden (`accountId`).
 //
 // DESVIO DELIBERADO (lo impone el API): el origen recibia `CashAccountPosition` con la fila de la
 // cuenta ANIDADA (`position.account.name`) y leia de ahi la periodicidad, el banco y la moneda.
@@ -62,15 +74,28 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DataTablePagination } from "@/components/shared/data-table-pagination";
-import { formatCurrency, formatDate, getTodayLocalDate } from "@gestion/shared";
+import {
+  formatCurrency,
+  formatDate,
+  getTodayLocalDate,
+  type CashMovementFormValues,
+  type CashTransferFormValues,
+} from "@gestion/shared";
 import { getPeriodicityLabel } from "@gestion/shared/lib/data/cash-options.ts";
+import { toast } from "sonner";
+import { CashMovementModal } from "@/components/cajas-bancos/cash-movement-modal";
+import { CashTransferModal } from "@/components/cajas-bancos/cash-transfer-modal";
+import { PettyCashPanel } from "@/components/cajas-bancos/petty-cash-panel";
 import { useCajasBancos } from "@/components/cajas-bancos/cajas-bancos-provider";
+import { createPayment } from "@/lib/api/client";
 import {
   listCashPositionsConsolidated,
   listLastMovementDates,
   type CashAccountPosition,
 } from "@/lib/cajas-bancos/caja";
 import { toPen } from "@/lib/cajas-bancos/dashboard";
+import { cashMovementToPayment } from "@/lib/cajas-bancos/movimientos";
+import { createCashTransfer } from "@/lib/cajas-bancos/transferencias";
 
 const SKELETON_ROWS = 4;
 const DEFAULT_PAGE_SIZE = 10;
@@ -125,8 +150,10 @@ function formatAmount(value: number, currency: string): string {
 }
 
 export function CuentasView() {
-  // El tipo de cambio sale de los ajustes, que el provider ya leyo (`GET /settings`).
-  const { penUsdRate } = useCajasBancos();
+  // El tipo de cambio sale de los ajustes, que el provider ya leyo (`GET /settings`); las filas
+  // completas de las cuentas son las que necesitan los modales de transferencia, movimiento y caja
+  // chica (fondo, custodio, limite por vale).
+  const { penUsdRate, accounts } = useCajasBancos();
   const today = getTodayLocalDate();
   const [positions, setPositions] = useState<CashAccountPosition[]>([]);
   const [lastMovements, setLastMovements] = useState<
@@ -138,6 +165,14 @@ export function CuentasView() {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<AccountFilterValue>("ALL");
+  // Se incrementa despues de una escritura (transferencia, movimiento, reposicion) para releer los
+  // saldos: es la base la que los recalcula (S2), no esta pantalla.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [movementAccountId, setMovementAccountId] = useState<string | null>(null);
+  const [isSavingMovement, setIsSavingMovement] = useState(false);
+  const [pettyCashAccountId, setPettyCashAccountId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -182,7 +217,51 @@ export function CuentasView() {
     return () => {
       isMounted = false;
     };
-  }, [today]);
+  }, [today, refreshKey]);
+
+  /**
+   * Registra la transferencia y relee los saldos.
+   *
+   * Las reglas (cuentas distintas, en PEN, monto positivo, periodo abierto en las dos) las aplica
+   * `create_cash_transfer`; el mensaje del `ApiError` se muestra tal cual, sin traducir (S5).
+   */
+  async function handleTransfer(values: CashTransferFormValues) {
+    setIsTransferring(true);
+    try {
+      await createCashTransfer(values);
+      setTransferOpen(false);
+      toast.success("Transferencia registrada");
+      setRefreshKey((key) => key + 1);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "No se pudo registrar la transferencia.",
+      );
+    } finally {
+      setIsTransferring(false);
+    }
+  }
+
+  /**
+   * Registra el movimiento de caja y relee los saldos.
+   *
+   * Es `POST /payments` con `isCashMovement: true` (S8): el recibo lo crea la misma RPC que un pago
+   * normal, con su numero correlativo, y queda fuera del circuito de asignacion.
+   */
+  async function handleCreateMovement(values: CashMovementFormValues) {
+    setIsSavingMovement(true);
+    try {
+      await createPayment(cashMovementToPayment(values));
+      toast.success("Movimiento registrado");
+      setMovementAccountId(null);
+      setRefreshKey((key) => key + 1);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "No se pudo registrar el movimiento.",
+      );
+    } finally {
+      setIsSavingMovement(false);
+    }
+  }
 
   const hasForeignCurrency = positions.some(
     (position) => position.currency !== "PEN",
@@ -403,6 +482,32 @@ export function CuentasView() {
             return value ? formatDate(value) : "—";
           },
         }),
+        // Las dos acciones de C6. "Vales" solo existe en cajas chicas (`is_petty_cash`): en una
+        // cuenta normal el panel de vales no tendria fondo que reponer.
+        cuentasColumnHelper.display({
+          id: "actions",
+          header: () => <div className="text-right">Acciones</div>,
+          cell: ({ row }) => (
+            <div className="flex justify-end gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setMovementAccountId(row.original.id)}
+              >
+                Movimiento
+              </Button>
+              {row.original.isPettyCash ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPettyCashAccountId(row.original.id)}
+                >
+                  Vales
+                </Button>
+              ) : null}
+            </div>
+          ),
+        }),
       ]),
     [],
   );
@@ -422,6 +527,18 @@ export function CuentasView() {
   });
 
   const hasFilters = search.trim() !== "" || filterType !== "ALL";
+
+  // Cuentas que ofrecen los modales: las posiciones (vivas y activas) con su fila completa.
+  const selectableAccounts = useMemo(() => {
+    const activeIds = new Set(positions.map((position) => position.accountId));
+
+    return accounts.filter((account) => activeIds.has(account.id));
+  }, [accounts, positions]);
+
+  const pettyCashAccount =
+    selectableAccounts.find((item) => item.id === pettyCashAccountId) ?? null;
+  const movementAccount =
+    selectableAccounts.find((item) => item.id === movementAccountId) ?? null;
 
   return (
     <main className="container mx-auto flex flex-col gap-6 p-6">
@@ -485,6 +602,7 @@ export function CuentasView() {
       <div className="flex flex-col gap-4">
         {/* Línea de controles: búsqueda + filtro de tipo, fuera del datatable. */}
         <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => setTransferOpen(true)}>Transferir</Button>
           <Input
             placeholder="Buscar por nombre o banco…"
             value={search}
@@ -567,6 +685,39 @@ export function CuentasView() {
 
         <DataTablePagination table={table} />
       </div>
+
+      <CashTransferModal
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+        accounts={selectableAccounts}
+        onDone={(values) => void handleTransfer(values)}
+        isSaving={isTransferring}
+      />
+
+      <CashMovementModal
+        open={movementAccountId !== null}
+        onOpenChange={(next) => {
+          if (!next) setMovementAccountId(null);
+        }}
+        account={movementAccount}
+        onDone={(values) => void handleCreateMovement(values)}
+        isSaving={isSavingMovement}
+      />
+
+      {pettyCashAccount ? (
+        <PettyCashPanel
+          open
+          onOpenChange={(next) => {
+            if (!next) setPettyCashAccountId(null);
+          }}
+          account={pettyCashAccount}
+          accounts={selectableAccounts}
+          onChanged={() => {
+            // La reposicion mueve saldos entre dos cuentas: se relee la tabla de saldos.
+            setRefreshKey((key) => key + 1);
+          }}
+        />
+      ) : null}
     </main>
   );
 }

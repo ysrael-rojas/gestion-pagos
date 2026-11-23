@@ -21,7 +21,12 @@
 // aca (en vez de importarse de apps/api) porque `apps/web` no depende de `@gestion/api`: el
 // paquete del backend no es publicable y su build es un bundle de esbuild. Cambiar un campo alla
 // es cambiar este archivo, y el unico lugar donde eso se nota rapido son los tests de la UI.
-import type { ClientFormValues, PaymentFormValues } from "@gestion/shared";
+import type {
+  CashCloseFormValues,
+  CashCountFormValues,
+  ClientFormValues,
+  PaymentFormValues,
+} from "@gestion/shared";
 
 const DEFAULT_API_BASE_URL = "http://localhost:3001";
 
@@ -201,6 +206,170 @@ export interface CashAccountCatalogItem {
   isActive: boolean;
 }
 
+/**
+ * Fila completa de `cash_account` (`apps/api/src/cash/cash-accounts.types.ts`).
+ *
+ * Es el `CashAccount` de `lib/cuentas/entidades.ts:8-32` del origen: `CashAccountCatalogItem` mas
+ * todo lo que el formulario de cuentas necesita (los datos bancarios, la periodicidad de cierre,
+ * el saldo de apertura con su fecha, las notas y el bloque de caja chica: fondo, limite por vale
+ * y custodio). `numeric(12,2)` llega como number y los timestamps como ISO string; `date` viaja
+ * "YYYY-MM-DD" sin conversion.
+ *
+ * No confundir con `CashAccountCatalogItem`: ese es el selector del formulario de pagos y sigue
+ * devolviendo cinco columnas. La fila completa la devuelven `GET /cash-accounts/:id` y las dos
+ * escrituras.
+ */
+export interface CashAccountRecord extends CashAccountCatalogItem {
+  bankName: string | null;
+  accountNumber: string | null;
+  cci: string | null;
+  closingPeriodicity: ClosingPeriodicity | null;
+  openingBalance: number;
+  openingBalanceDate: string;
+  notes: string | null;
+  isPettyCash: boolean;
+  changeFund: number;
+  pettyExpenseLimit: number | null;
+  custodianName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+/**
+ * Body de `POST /cash-accounts` y `PATCH /cash-accounts/:id`
+ * (`apps/api/src/cash/cash-accounts.query.ts`).
+ *
+ * Es el `CashAccountFormMutation` del origen (`lib/cuentas/entidades.ts:34-50`): los seis campos
+ * que el formulario siempre manda van obligatorios y el resto es opcional. `type` viaja en el
+ * body porque el schema compartido de la FILA no lo trae.
+ *
+ * El PATCH REEMPLAZA las columnas editables (no es un merge): la UI manda el formulario completo y
+ * un opcional omitido vuelve a su default del schema compartido.
+ */
+export interface CashAccountWrite {
+  type: CashAccountType;
+  name: string;
+  currency: string;
+  openingBalance: number;
+  openingBalanceDate: string;
+  isActive: boolean;
+  bankName?: string;
+  accountNumber?: string;
+  cci?: string;
+  closingPeriodicity?: ClosingPeriodicity | null;
+  notes?: string;
+  isPettyCash?: boolean;
+  changeFund?: number;
+  pettyExpenseLimit?: number;
+  custodianName?: string;
+}
+
+/**
+ * Una fila de `GET /cash-positions` (`apps/api/src/cash/positions.types.ts`).
+ *
+ * Es la union que el origen hacia en el cliente de la RPC `get_cash_positions` con
+ * `listCashAccounts()` (`listCashPositionsConsolidated`, `lib/caja/caja.ts:453-476`), ya resuelta
+ * en SQL: el SALDO lo devuelve la base (S2) y las otras siete columnas son de la misma fila de
+ * `cash_account`, que es lo que leen el dashboard (`type`, `currency`, `balance`) y el listado
+ * (`name`, `bankName`, `closingPeriodicity`, `isPettyCash`).
+ *
+ * El origen lo tipaba anidado (`CashAccountPosition { account, balance }`); aca la fila es plana
+ * porque asi la devuelve el API y no hay nada que anidar. Cambiarla es cambiar
+ * `positions.types.ts` alla.
+ */
+export interface CashAccountPosition {
+  accountId: string;
+  name: string;
+  type: CashAccountType;
+  currency: string;
+  balance: number;
+  bankName: string | null;
+  closingPeriodicity: ClosingPeriodicity | null;
+  isPettyCash: boolean;
+}
+
+/**
+ * `GET /last-movement-dates`: `accountId -> "YYYY-MM-DD"` del ultimo recibo no anulado.
+ *
+ * Una cuenta AUSENTE del mapa no tiene movimientos (la UI muestra "sin movimientos"), que es
+ * justo lo que el origen decidia con este mapa (`lib/caja/caja.ts:478-500`).
+ */
+export type LastMovementDates = Record<string, string>;
+
+/**
+ * Una fila del conteo fisico de un cierre (`cash_close_denomination`).
+ *
+ * Es el `CloseDenomination` del origen (`lib/caja/caja.ts`, `listCloseDenominations`), la misma
+ * forma que manda el modal al cerrar, asi que la grilla del acta no traduce nada.
+ */
+export interface CloseDenomination {
+  denomination: number;
+  quantity: number;
+}
+
+/**
+ * Un cierre de caja (`GET /cash-closes`, `apps/api/src/cash/closes.types.ts`).
+ *
+ * Es el `CashClose` del origen campo por campo (`components/pagos/types.ts:103-130`): los totales
+ * y la `difference` los escribio la RPC `close_cash_account`, no la app (S2). `differenceTolerance`
+ * es el snapshot de la tolerancia vigente al cerrar y `countedBy`/`verifiedBy` la doble firma del
+ * acta; los tres son `null` en los cierres anteriores a esas migraciones.
+ */
+export interface CashCloseRecord {
+  id: string;
+  cashAccountId: string;
+  periodicity: ClosingPeriodicity;
+  periodStart: string;
+  periodEnd: string;
+  openingBalance: number;
+  incomeTotal: number;
+  expenseTotal: number;
+  expectedBalance: number;
+  transferInTotal: number;
+  transferOutTotal: number;
+  countedBalance: number | null;
+  changeFund: number | null;
+  difference: number | null;
+  differenceReason: string | null;
+  differenceTolerance: number | null;
+  countedBy: string | null;
+  verifiedBy: string | null;
+  penUsdRate: number | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+/**
+ * `GET /cash-closes/:id` y la respuesta del alta: el cierre con su arqueo por denominacion.
+ *
+ * El origen pedia el cierre y el detalle en paralelo; el API los devuelve juntos porque los lee
+ * en la misma transaccion. `denominations` viene vacio en los cierres de banco.
+ */
+export interface CashCloseDetail extends CashCloseRecord {
+  denominations: CloseDenomination[];
+}
+
+/**
+ * Un arqueo sorpresivo (`GET /cash-counts`, `lib/caja/arqueos.ts:8-21` del origen).
+ *
+ * `expectedBalance` y `difference` los calculo `register_cash_count` con la misma formula que el
+ * cierre (`private.cash_expected_balance`): la UI los muestra, no los deriva.
+ */
+export interface CashCountRecord {
+  id: string;
+  accountId: string;
+  countDate: string;
+  countedBalance: number;
+  expectedBalance: number;
+  difference: number;
+  changeFund: number | null;
+  countedBy: string | null;
+  isSurprise: boolean;
+  notes: string | null;
+  createdAt: string;
+}
+
 export interface PaymentMethodCatalogItem {
   id: string;
   code: string;
@@ -220,6 +389,34 @@ export interface CashReceiptCategoryCatalogItem {
 export interface CatalogSeedResult {
   methods: number;
   categories: number;
+}
+
+/** Los tres valores del enum `closing_periodicity` (`apps/api/src/cash/settings.types.ts`). */
+export type ClosingPeriodicity = "DAILY" | "WEEKLY" | "MONTHLY";
+
+/**
+ * Ajustes del dueno: `key -> value`, tal como estan en `app_setting`.
+ *
+ * Es un mapa de strings y no un objeto con las tres claves porque la tabla es clave/valor y
+ * admite cualquier clave; los lectores con defaults viven en `lib/cajas-bancos/settings.ts`.
+ */
+export type AppSettings = Record<string, string>;
+
+/**
+ * Body de `PATCH /settings`: solo las tres claves que expone la tarjeta de configuracion.
+ *
+ * Los numeros viajan como numeros; el API los normaliza como los guardaba el origen
+ * (`String(rate)` y `tolerance.toFixed(2)`), asi que el valor guardado no depende del cliente.
+ */
+export interface SettingsUpdate {
+  default_closing_periodicity?: ClosingPeriodicity;
+  pen_usd_rate?: number;
+  cash_difference_tolerance?: number;
+}
+
+/** `POST /settings/ensure`: cuantas filas falto crear (`0` = ya estaba sembrado). */
+export interface SettingsSeedResult {
+  created: number;
 }
 
 /** Asignacion de entrada (`AllocationInput` del origen). */
@@ -509,9 +706,135 @@ export async function softDeleteEntity(id: string): Promise<void> {
   });
 }
 
-/** Cuentas de caja y banco (`listCashAccounts`). */
+/**
+ * Catalogo de cuentas del dueno (`listCashAccounts` del origen), para el selector de pagos.
+ *
+ * Cinco columnas y nada mas: es el contrato que consume `components/pagos/*`. La fila completa del
+ * vertical de cajas-bancos se pide por id (`getCashAccount`) o vuelve de una escritura.
+ */
 export function listCashAccounts(): Promise<CashAccountCatalogItem[]> {
   return request<CashAccountCatalogItem[]>("/cash-accounts");
+}
+
+/** Fila completa de una cuenta viva del dueno (`GET /cash-accounts/:id`). */
+export function getCashAccount(id: string): Promise<CashAccountRecord> {
+  return request<CashAccountRecord>(`/cash-accounts/${encodeURIComponent(id)}`);
+}
+
+/** Alta de cuenta (`createCashAccount` del origen). Devuelve la fila completa creada. */
+export function createCashAccount(values: CashAccountWrite): Promise<CashAccountRecord> {
+  return request<CashAccountRecord>("/cash-accounts", { method: "POST", body: values });
+}
+
+/** Modificacion (`updateCashAccount`). Reemplaza las columnas editables, no hace merge. */
+export function updateCashAccount(
+  id: string,
+  values: CashAccountWrite,
+): Promise<CashAccountRecord> {
+  return request<CashAccountRecord>(`/cash-accounts/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: values,
+  });
+}
+
+/**
+ * Baja logica (`softDeleteCashAccount`): `POST /cash-accounts/:id/delete`.
+ *
+ * POST y no DELETE porque la fila no desaparece: se marca `deleted_at` (los pagos y cierres la
+ * referencian), igual que la baja de una entidad o la anulacion de un pago.
+ */
+export async function softDeleteCashAccount(id: string): Promise<void> {
+  await request<{ deleted: true }>(`/cash-accounts/${encodeURIComponent(id)}/delete`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Saldos de todas las cuentas vivas del dueno (`listCashPositionsConsolidated` del origen).
+ *
+ * Una sola llamada: el origen pedia la RPC de posiciones y el catalogo de cuentas en paralelo y
+ * los cruzaba en el cliente. `asOf` es el corte; sin el, la base usa `current_date`.
+ */
+export function listCashPositions(asOf?: string): Promise<CashAccountPosition[]> {
+  return request<CashAccountPosition[]>("/cash-positions", { query: { asOf } });
+}
+
+/**
+ * Saldo de UNA cuenta a una fecha (`getCashPosition` del origen, que devolvia un number).
+ *
+ * Un id inexistente, borrado o de otro dueno responde 404: el `ApiError` llega con el mensaje de
+ * dominio del API. No se devuelve un 0 silencioso, que seria un saldo inventado.
+ */
+export function getCashPosition(accountId: string, asOf?: string): Promise<number> {
+  return request<number>(`/cash-accounts/${encodeURIComponent(accountId)}/position`, {
+    query: { asOf },
+  });
+}
+
+/**
+ * Ultimo recibo no anulado por cuenta (`listLastMovementDates` del origen).
+ *
+ * Una sola llamada (la RPC `list_last_movement_dates`): PostgREST rechazaba el agregado
+ * `payment_date.max()` en el origen y por eso se movio a SQL (SPEC 55).
+ */
+export function listLastMovementDates(): Promise<LastMovementDates> {
+  return request<LastMovementDates>("/last-movement-dates");
+}
+
+/**
+ * Cierres del dueno (`listCashCloses` del origen), del mas reciente al mas antiguo.
+ *
+ * `accountId` es el filtro de la pantalla de cuadres; sin el vuelve el historial completo, que es
+ * lo que necesita el dashboard para consolidar.
+ *
+ * El prefijo `cash-closes` todavia NO esta en la lista blanca del puente del navegador
+ * (`app/api/backend/[...path]/route.ts`): desde un Server Component anda, desde el navegador
+ * responde 404 del puente hasta que se agregue alla (fuera de la superficie de C4).
+ */
+export function listCashCloses(accountId?: string): Promise<CashCloseRecord[]> {
+  return request<CashCloseRecord[]>("/cash-closes", { query: { accountId } });
+}
+
+/**
+ * Un cierre con su arqueo (`getCashClose` + `listCloseDenominations` del origen).
+ *
+ * Un id inexistente o de otro dueno responde 404: la RLS recorta la fila antes de que el API la
+ * vea, asi que nunca se devuelven las denominaciones de otro dueno.
+ */
+export function getCashClose(id: string): Promise<CashCloseDetail> {
+  return request<CashCloseDetail>(`/cash-closes/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Cierra un periodo (`closeCashAccount` del origen, RPC `close_cash_account`).
+ *
+ * El body es el contrato del modal (`CashCloseFormValues` de `@gestion/shared`). Las reglas que
+ * deciden si el cierre se permite las aplica la base (periodo ya cerrado, fecha futura,
+ * tolerancia sin motivo): el `ApiError` trae su mensaje ya redactado y el modal lo muestra tal
+ * cual. El cierre es IRREVERSIBLE: no hay endpoint de reapertura.
+ */
+export function createCashClose(values: CashCloseFormValues): Promise<CashCloseDetail> {
+  return request<CashCloseDetail>("/cash-closes", { method: "POST", body: values });
+}
+
+/**
+ * Arqueos sorpresivos del dueno (`listCashCounts` del origen), del mas reciente al mas antiguo.
+ *
+ * Filtro `accountId` como en los cierres; el mismo aviso del puente del navegador aplica al
+ * prefijo `cash-counts`.
+ */
+export function listCashCounts(accountId?: string): Promise<CashCountRecord[]> {
+  return request<CashCountRecord[]>("/cash-counts", { query: { accountId } });
+}
+
+/**
+ * Registra un arqueo que no cierra periodo (`createCashCount`, RPC `register_cash_count`).
+ *
+ * Devuelve la fila recien creada, que es lo que el origen releia con `getCashCount` despues de
+ * la RPC.
+ */
+export function createCashCount(values: CashCountFormValues): Promise<CashCountRecord> {
+  return request<CashCountRecord>("/cash-counts", { method: "POST", body: values });
 }
 
 /** Metodos de pago (`listPaymentMethods`). */
@@ -538,6 +861,33 @@ export function listReceiptCategories(
  */
 export function ensureCatalogs(): Promise<CatalogSeedResult> {
   return request<CatalogSeedResult>("/catalogs/ensure", { method: "POST", body: {} });
+}
+
+/**
+ * Ajustes del dueno (`getAppSettings`). Lectura pura: no siembra nada, aunque el dueno no tenga
+ * ninguna fila todavia (`GET /settings` devuelve `{}`).
+ */
+export function getSettings(): Promise<AppSettings> {
+  return request<AppSettings>("/settings");
+}
+
+/**
+ * Upsert parcial de los ajustes de la tarjeta (`setAppSetting`, tres veces en el origen).
+ *
+ * Devuelve el mapa completo ya guardado, que es lo que la tarjeta vuelve a leer.
+ */
+export function updateSettings(values: SettingsUpdate): Promise<AppSettings> {
+  return request<AppSettings>("/settings", { method: "PATCH", body: values });
+}
+
+/**
+ * Siembra idempotente de las tres semillas del origen (`ensureDefaultSettings`, deuda L67).
+ *
+ * Ver `lib/cajas-bancos/settings.ts`: en el origen esto escribia dentro del render de la tarjeta
+ * de configuracion; aca es una llamada explicita y una sola vez.
+ */
+export function ensureSettings(): Promise<SettingsSeedResult> {
+  return request<SettingsSeedResult>("/settings/ensure", { method: "POST", body: {} });
 }
 
 /** Smoke del borde de validacion: el API devuelve el payload ya parseado por el schema. */

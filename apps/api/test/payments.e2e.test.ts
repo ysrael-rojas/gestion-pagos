@@ -29,6 +29,7 @@ import {
 	type AccountIds,
 	type OwnerSession,
 	type SeededSecondOwner,
+	APP_TODAY,
 	deleteOwnerFixtures,
 	findSeededOwnerId,
 	grantDemoCredential,
@@ -763,8 +764,8 @@ test("GET /cartera/resumen agrega los buckets del dueno de la sesion", async () 
 	const vouchers = await pool.query<{ count: number; amount: string; overdue: number; overdue_amount: string }>(
 		`select count(*)::int as count,
 		        coalesce(sum(v.balance), 0)::numeric as amount,
-		        count(*) filter (where v.effective_due_date < current_date)::int as overdue,
-		        coalesce(sum(v.balance) filter (where v.effective_due_date < current_date), 0)::numeric as overdue_amount
+		        count(*) filter (where v.effective_due_date < ${APP_TODAY})::int as overdue,
+		        coalesce(sum(v.balance) filter (where v.effective_due_date < ${APP_TODAY}), 0)::numeric as overdue_amount
 		   from public.voucher_balance v
 		   join public.comprobante c on c.id = v.comprobante_id
 		  where c.owner_id = $1 and v.voucher_kind = 'VENTA' and v.balance > 0`,
@@ -929,14 +930,14 @@ test("las vistas security_invoker no devuelven filas ajenas (fixture insertada y
 		await client.query(
 			`insert into public.comprobante
 			   (id, entity_id, voucher_kind, voucher_type, voucher_number, issue_date, subtotal, igv, total, payment_type, owner_id)
-			 values ($1, $2, 'VENTA', 'FACTURA', $3, current_date, 700, 0, 700, 'CONTADO', $4)`,
+			 values ($1, $2, 'VENTA', 'FACTURA', $3, ${APP_TODAY}, 700, 0, 700, 'CONTADO', $4)`,
 			[comprobanteId, entityId, `E2E-RB-${comprobanteId.slice(0, 8)}`, second.session.ownerId],
 		);
 
 		const payment = await client.query<{ id: string }>(
 			`insert into public.payment
 			   (owner_id, entity_id, direction, payment_date, amount, method_id, cash_account_id, category_id, reference)
-			 values ($1, $2, 'INGRESO', current_date, 250, $3, $4, $5, 'e2e rollback')
+			 values ($1, $2, 'INGRESO', ${APP_TODAY}, 250, $3, $4, $5, 'e2e rollback')
 			 returning id`,
 			[
 				second.session.ownerId,

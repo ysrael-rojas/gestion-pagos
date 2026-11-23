@@ -281,6 +281,20 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   `set -o pipefail`. Y `db-dev` no tiene política de reinicio (a diferencia de `db-prod`), así que
   cada reinicio del motor la deja abajo y el primer e2e falla por un motivo que parece del suite.
   Deuda de entorno, no del port.
+- **L27 — Limpieza del vertical: tres decisiones y un defecto que no se tocó.** (a) `summarizeCashFlow`
+  **se borró** (con `FlowLike`, `CashFlowTotals` y sus 5 casos de test): el único consumidor era su
+  propio test, y la suma del mes la hace PostgreSQL en `GET /cash-flow/monthly`. (b)
+  `GET /bank-reconciliations/:id` **se queda**: no lo usa la pantalla (lee por triplete), pero tiene
+  cobertura e2e real —incluido el 404 de otro dueño— y es la lectura natural del acta por id;
+  borrarlo habría quitado cobertura, no deuda. (c) Se corrigieron dos afirmaciones falsas:
+  `ci.yml` decía "33 tests" de API cuando la suite tiene **127** casos (`grep -c '^test('`), y el
+  comentario de `app-navbar.tsx` afirmaba que "Resumen" (`/`) es el dashboard de tesorería cuando `/`
+  es el inventario del UI-kit y el dashboard vive en `/cajas-bancos`. El tercer aviso —"39 políticas
+  RLS" en el README— resultó **verdadero**: medido en la base, hay 39.
+- **L27(b) — hallazgo que NO se arregló**: la entrada "Resumen" del navbar apunta a `/`, que es el
+  inventario del UI-kit. Es un defecto de navegación de producto, no de documentación: cambiarlo
+  mueve la UX de la barra y merece su propia decisión, no un cambio silencioso dentro de una
+  limpieza de deudas.
 
 ## Estado para retomar (handoff)
 
@@ -343,8 +357,9 @@ Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despu
 **Deudas abiertas, con su referencia.**
 - L13 — el provider hidrata la fila completa de cada cuenta con un `GET /cash-accounts/:id` (N+1).
   La salida limpia es un `GET /cash-accounts?full=1` aditivo.
-- L14 — **ninguna pantalla de C5 se probo en un navegador**; la prueba es el spec de C8. L19 dice lo
-  mismo de C6.
+- **L14 y L19 — cerradas por el spec 09 (C8).** Las pantallas de C5, C6 y C7 se prueban en un
+  navegador: dashboard, alta de cuenta por formulario, transferencia, vale con su anulación,
+  conciliación con su acta y el interruptor de una categoría.
 - L12(a) — `authenticated` conserva UPDATE/DELETE sobre `cash_count` y las tablas de denominaciones
   (solo `cash_close` esta re-revokeado); sin politica de UPDATE/DELETE esas sentencias afectan 0
   filas, no fallan. Inocuo hoy, anotado. Aplica igual a `cash_transfer`, `petty_cash_vale` y
@@ -352,10 +367,12 @@ Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despu
 - L8 — `apps/api/src/db/schema/index.ts` no exporta los schemas nuevos (`cash_transfer`,
   `petty_cash_vale` y los dos de C7 cuando lleguen): los servicios importan directo.
 - C7 no dejo prefijo pendiente: `bank-reconciliations` y `cash-flow` ya estan en el puente.
-- L20 deja `summarizeCashFlow` sin consumidor de produccion (el agregado SQL lo reemplazo): se porto
-  por contrato del slice y es codigo a vigilar, no a borrar sin decidir.
-- `GET /bank-reconciliations/:id` existe y hoy no tiene consumidor: la pantalla lee por triplete. Se
-  dejo por simetria con `cash-closes`; si nadie lo usa en C8, es candidato a borrarse.
+- **L20 — cerrada en la limpieza del vertical.** `summarizeCashFlow` (con `FlowLike` y
+  `CashFlowTotals`) se borró junto con sus tests: no tenía consumidor de producción y era una segunda
+  definición del flujo del mes al lado del SQL. Ver L27.
+- **`GET /bank-reconciliations/:id` se queda, decidido en L27**: no tiene consumidor de producto,
+  pero sí cuatro aserciones e2e que lo ejercitan, incluido el 404 de otro dueño, y es la única
+  lectura de un acta por id. Borrarlo habría borrado cobertura sin ganar nada.
 - **L5 y L8 — cerradas en C8.** El teardown borra `cash_transfer`, `petty_cash_vale`,
   `bank_reconciliation`, `bank_reconciliation_item` y `app_setting`, y el baseline cuenta esas cinco
   mas las cuatro de cajas/arqueos: la corrida del spec 09 dejo los conteos identicos antes y

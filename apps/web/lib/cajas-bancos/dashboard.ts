@@ -1,11 +1,14 @@
 // Resumen de posiciones y flujo del mes del dashboard de tesoreria (C5 y C7 del vertical de
 // cajas-bancos).
 //
-// Port COMPLETO de `lib/caja/dashboard.ts` del origen (100 lineas): `summarizePositions` y `toPen`
-// (las dos funciones que el listado de cuentas consume para mostrar el total consolidado, el saldo
-// en cajas, el saldo en bancos y el "% del total" de cada fila) mas `FlowLike`, `CashFlowTotals` y
-// `summarizeCashFlow` (el resultado del mes del dashboard). C5 porto la mitad de posiciones y dejo
-// estas tres anotadas como "C7"; el dashboard llego con C7 y las trae con su pantalla.
+// Port de `lib/caja/dashboard.ts` del origen: `summarizePositions` y `toPen`, las dos funciones
+// que el listado de cuentas consume para mostrar el total consolidado, el saldo en cajas, el saldo
+// en bancos y el "% del total" de cada fila.
+//
+// `FlowLike`, `CashFlowTotals` y `summarizeCashFlow` NO estan: se portaron con C7 y se borraron en
+// la limpieza del vertical porque ningun consumidor de produccion los llamaba. El resultado del mes
+// lo agrega PostgreSQL en `GET /cash-flow/monthly`; tener ademas la suma en el cliente era la
+// segunda definicion de "flujo del mes" que S2 prohibe.
 //
 // `getMonthRange` NO esta aca y no se duplica: vive en `lib/cajas-bancos/periodo.ts` desde C5,
 // porque es aritmetica de calendario (no de dinero) y tiene dos consumidores (el rango del extracto
@@ -17,17 +20,9 @@
 //
 // S2 — EL FLUJO DEL MES TAMPOCO SE SUMA ACA EN PRODUCCION: el dashboard usa
 // `getMonthlyCashFlow` (`GET /cash-flow/monthly`), donde los tres numeros los agrega PostgreSQL con
-// el filtro `status <> 'ANULADO'`. `summarizeCashFlow` es el helper de DISPLAY del origen (suma
-// filas que YA vienen sin anulados y redondea a dos decimales) y se conserva por contrato del
-// slice, no porque la pantalla lo llame: reintroducir la suma en el cliente seria una segunda
-// definicion de "flujo del mes" al lado del SQL, que es justo lo que S2 prohibe.
+// el filtro `status <> 'ANULADO'`. No hay una segunda suma en el cliente: el helper de display del
+// origen se borro por no tener consumidor (ver el encabezado).
 import { round2 } from "@gestion/shared/lib/utils.ts";
-
-/** Fila minima de un movimiento de caja para agregar el resultado del mes. */
-export interface FlowLike {
-  direction: "INGRESO" | "EGRESO";
-  amount: number;
-}
 
 /** Fila minima de una posicion para agregar el disponible total. */
 export interface PositionLike {
@@ -35,44 +30,11 @@ export interface PositionLike {
   balance: number;
 }
 
-/** Los tres numeros del resultado del mes. */
-export interface CashFlowTotals {
-  income: number;
-  expense: number;
-  /** Ingresos − egresos. Puede ser negativo. */
-  net: number;
-}
-
 export interface PositionsSummary {
   total: number;
   cashTotal: number;
   bankTotal: number;
   count: number;
-}
-
-/**
- * Suma ingresos y egresos del periodo; el neto es ingresos − egresos.
- *
- * Una direccion que no sea INGRESO ni EGRESO no suma a ningun lado (y no es un error: se ignora,
- * como en el origen). El filtro de recibos ANULADOS NO esta aca: lo aplica el SQL de
- * `GET /cash-flow/monthly`, antes de que cualquier fila llegue al cliente (S2).
- */
-export function summarizeCashFlow(rows: FlowLike[]): CashFlowTotals {
-  let income = 0;
-  let expense = 0;
-
-  for (const row of rows) {
-    if (row.direction === "INGRESO") {
-      income += row.amount;
-    } else if (row.direction === "EGRESO") {
-      expense += row.amount;
-    }
-  }
-
-  income = round2(income);
-  expense = round2(expense);
-
-  return { income, expense, net: round2(income - expense) };
 }
 
 /**

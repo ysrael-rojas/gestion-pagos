@@ -25,8 +25,15 @@ export const CLOSING_PERIODICITIES = ["DAILY", "WEEKLY", "MONTHLY"] as const;
 export type ClosingPeriodicityValue = (typeof CLOSING_PERIODICITIES)[number];
 
 // "" = "usa la periodicidad predeterminada global" (se guarda como NULL).
+//
+// `null` se acepta además de `""` porque este schema es el contrato de la FILA y también el del
+// body del API, y el formulario manda la SALIDA ya parseada (donde `""` ya se transformó en `null`).
+// Sin el literal, el contrato rechazaba su propia salida: `POST /cash-accounts` respondía 400
+// `invalid_union` para cualquier cuenta que dejara la periodicidad por defecto — o sea, para casi
+// todas. Lo encontró el e2e del vertical (spec 09), no un test de API, porque el payload solo se
+// arma en el navegador.
 const optionalPeriodicity = z
-  .union([z.literal(""), z.enum(CLOSING_PERIODICITIES)])
+  .union([z.literal(""), z.literal(null), z.enum(CLOSING_PERIODICITIES)])
   .transform((value) => (value === "" ? null : value))
   .optional();
 

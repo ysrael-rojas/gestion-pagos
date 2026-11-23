@@ -131,7 +131,7 @@ Si cambiás un seed, no hace falta el drift guard (no toca esquema): hace falta 
 | `pnpm --filter @gestion/db db:seed` | los 5 seeds en orden S20 | `DATABASE_URL` | **no** |
 | `pnpm --filter @gestion/db db:dump --check` | compara el catálogo real (`public`, `auth`, `private`) con el snapshot | `DATABASE_URL` | sí |
 | `pnpm --filter @gestion/db db:verify-rls` | auditoría de RLS: 8 bloques con resultado esperado (S19) | `DB_CONTAINER` + `DB_NAME` (docker) o `DATABASE_URL` + un `psql` local | sí (hace rollback de todo) |
-| `pnpm --filter @gestion/db db:check-rls` | aislamiento por dueño desde la ruta de la app: 42 aserciones en una base scratch que crea y borra | `DATABASE_URL` con permiso de `create database` | sí |
+| `pnpm --filter @gestion/db db:check-rls` | aislamiento por dueño desde la ruta de la app: 46 aserciones en una base scratch que crea y borra | `DATABASE_URL` con permiso de `create database` | sí |
 | `pnpm --filter @gestion/db db:pull` | introspección de Drizzle (no es el flujo diario, ver arriba) | `DATABASE_URL` o `POSTGRES_*` + `DB_PORT` | sí |
 | `pnpm --filter @gestion/db db:studio` | Drizzle Studio | idem | sí |
 

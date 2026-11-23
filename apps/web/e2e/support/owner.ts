@@ -6,9 +6,10 @@
 //    Better Auth que monta Nest), no insertando filas a mano. El id sale de la respuesta.
 // 2. La contrasena se genera en runtime (`randomUUID`): no hay ninguna credencial en un archivo
 //    del repo, y cada corrida usa una distinta.
-// 3. Las fixtures de dominio (entidad, cuenta de caja, metodo, categoria, comprobante) se insertan
-//    por SQL como dueno de las tablas, igual que los seeds, SIEMPRE con `owner_id` explicito.
-//    No hay otra via: `apps/api` no expone escritura de cuentas ni de comprobantes.
+// 3. Las fixtures de dominio (entidad, cuenta de caja, cuenta bancaria, caja chica, metodo,
+//    categoria, comprobante) se insertan por SQL como dueno de las tablas, igual que los seeds,
+//    SIEMPRE con `owner_id` explicito. No hay otra via: `apps/api` no expone escritura de cuentas
+//    ni de comprobantes.
 // 4. El teardown borra todo lo del dueno en orden de FK y termina en `auth.users`, que arrastra
 //    `auth.session` y `auth.account` por cascada. El dueno demo (`seed-demo.sql`) no se toca
 //    nunca: todas las clausulas son `owner_id = <uuid del usuario desechable>`.
@@ -89,19 +90,54 @@ export async function signUpOwner(): Promise<Owner> {
 export interface ProvisionOptions {
 	entity?: boolean;
 	cashAccount?: boolean;
-	paymentMethod?: boolean;
-	receiptCategory?: boolean;
+	/**
+	 * Cuenta BANCARIA (`BANK_ACCOUNT`), la que exigen la transferencia y la conciliacion. Nace con
+	 * `bank_name` porque el CHECK `cash_account_bank_requires_name` lo pide para ese tipo.
+	 *
+	 * `bankOpeningBalance` fija su saldo inicial: mientras no haya movimientos es exactamente lo
+	 * que devuelve `GET /cash-accounts/:id/position` (S2), asi que el spec puede afirmar un saldo
+	 * sin calcularlo.
+	 */
+	bankAccount?: boolean;
+	/** Importe del saldo inicial de `bankAccount`. Default 0. */
+	bankOpeningBalance?: number;
+	/**
+	 * Caja chica: caja de efectivo con `is_petty_cash`, fondo de cambio, limite por vale y custodio
+	 * (SPEC 32). Es la unica cuenta que ofrece el panel de vales.
+	 */
+	pettyCashAccount?: boolean;
+	/**
+	 * Metodo de pago. `true` genera un codigo propio (`E2E_<tag>`); con un objeto se fija el codigo,
+	 * que es lo que necesita el vale de caja chica: `create_petty_cash_vale` busca el metodo
+	 * `EFECTIVO` del dueno y no lo crea.
+	 */
+	paymentMethod?: boolean | { code?: string };
+	/**
+	 * Categoria de recibo. `true` crea una de INGRESO; el vale de caja chica exige una de EGRESO
+	 * (`create_petty_cash_vale` valida la direccion).
+	 */
+	receiptCategory?: boolean | { direction?: ReceiptDirection };
 	voucher?: boolean;
 	/** Importe del comprobante de venta. Default 1000. */
 	voucherTotal?: number;
 }
 
+/** Direccion de una categoria de recibo: espejo local del enum `payment_direction` (no importa la app). */
+export type ReceiptDirection = "INGRESO" | "EGRESO";
+
 export interface OwnerFixtures {
 	entity?: { id: string; name: string };
 	cashAccount?: { id: string; name: string };
+	bankAccount?: { id: string; name: string };
+	pettyCashAccount?: { id: string; name: string };
 	paymentMethod?: { id: string; name: string; code: string };
 	receiptCategory?: { id: string; name: string };
 	voucher?: { id: string; number: string; total: number };
+}
+
+/** Opciones del tipo `boolean | { ... }`: `true` es el default, el objeto trae los valores. */
+function optionObject<T extends object>(value: boolean | T | undefined): T | null {
+	return typeof value === "object" ? value : null;
 }
 
 /**
@@ -138,25 +174,53 @@ export function provisionFixtures(owner: Owner, options: ProvisionOptions): Owne
 		fixtures.cashAccount = { id, name };
 	}
 
+	if (options.bankAccount) {
+		const id = randomUUID();
+		const name = `E2E banco ${tag}`;
+		const bankName = `Banco E2E ${tag}`;
+		const openingBalance = options.bankOpeningBalance ?? 0;
+
+		statements.push(
+			`insert into public.cash_account (id, type, name, currency, bank_name, account_number, opening_balance, opening_balance_date, owner_id)
+			 values ('${id}', 'BANK_ACCOUNT', ${sqlText(name)}, 'PEN', ${sqlText(bankName)}, ${sqlText(`E2E-${tag}`)}, ${openingBalance}, ${APP_TODAY}, ${ownerId});`,
+		);
+		fixtures.bankAccount = { id, name };
+	}
+
+	if (options.pettyCashAccount) {
+		const id = randomUUID();
+		const name = `E2E caja chica ${tag}`;
+
+		// Fondo de cambio 500 y limite 200 por vale: el spec crea un vale de 120 y lo anula.
+		statements.push(
+			`insert into public.cash_account (id, type, name, currency, opening_balance, opening_balance_date, is_petty_cash, change_fund, petty_expense_limit, custodian_name, owner_id)
+			 values ('${id}', 'CASH_BOX', ${sqlText(name)}, 'PEN', 0, ${APP_TODAY}, true, 500, 200, ${sqlText(`Custodio E2E ${tag}`)}, ${ownerId});`,
+		);
+		fixtures.pettyCashAccount = { id, name };
+	}
+
 	if (options.paymentMethod) {
 		const id = randomUUID();
-		const code = `E2E_${tag.toUpperCase()}`;
+		const name = `Metodo E2E ${tag}`;
+		const code = optionObject(options.paymentMethod)?.code ?? `E2E_${tag.toUpperCase()}`;
 
 		statements.push(
 			`insert into public.payment_method (id, owner_id, code, name)
-			 values ('${id}', ${ownerId}, ${sqlText(code)}, ${sqlText(`Metodo E2E ${tag}`)});`,
+			 values ('${id}', ${ownerId}, ${sqlText(code)}, ${sqlText(name)});`,
 		);
-		fixtures.paymentMethod = { id, name: `Metodo E2E ${tag}`, code };
+		fixtures.paymentMethod = { id, name, code };
 	}
 
 	if (options.receiptCategory) {
 		const id = randomUUID();
+		const name = `Categoria E2E ${tag}`;
+		const direction = optionObject(options.receiptCategory)?.direction ?? "INGRESO";
 
 		statements.push(
 			`insert into public.cash_receipt_category (id, owner_id, direction, name, code)
-			 values ('${id}', ${ownerId}, 'INGRESO', ${sqlText(`Categoria E2E ${tag}`)}, ${sqlText(`E2E_CAT_${tag.toUpperCase()}`)});`,
+			 values ('${id}', ${ownerId}, '${direction}', ${sqlText(name)}, ${sqlText(`E2E_CAT_${tag.toUpperCase()}`)});`,
 		);
-		fixtures.receiptCategory = { id, name: `Categoria E2E ${tag}` };
+		fixtures.receiptCategory = { id, name };
 	}
 
 	if (options.voucher) {
@@ -205,8 +269,13 @@ export function countOwnerSessions(ownerId: string): number {
 /**
  * Borra todo lo del dueno, en orden de FK.
  *
- * Orden: `payment_allocation` y `petty_cash_vale` -> `payment` (RESTRICT) -> `comprobante` ->
- * `entidad` -> las cuentas y catalogos -> `auth.users` (que arrastra sesiones y cuentas).
+ * Orden: las hijas de la conciliacion, de la caja chica y de los cierres -> `payment` (RESTRICT)
+ * -> `comprobante` -> `entidad` -> las cuentas y catalogos -> `app_setting` -> `auth.users` (que
+ * arrastra sesiones y cuentas).
+ *
+ * Cada linea va ANTES de las tablas que referencia y el comentario dice cual FK obliga la
+ * posicion: sin eso, el primer spec que cree una de estas filas muere por violacion de FK en el
+ * `after` y el diagnostico apunta al teardown, no a lo que se rompio (L5 del doc del vertical).
  */
 export function deleteOwnerFixtures(ownerId: string): void {
 	const id = sqlText(ownerId);
@@ -214,15 +283,41 @@ export function deleteOwnerFixtures(ownerId: string): void {
 	psqlLines(
 		[
 			"begin;",
+			// `bank_reconciliation_item` no tiene owner_id (lo hereda del padre): se borra por padre.
+			// FK `reconciliation_id` -> bank_reconciliation (con ON DELETE CASCADE, pero se ordena
+			// igual: si un dia pierde el cascade, esto sigue funcionando).
+			`delete from public.bank_reconciliation_item where reconciliation_id in (select id from public.bank_reconciliation where owner_id = ${id});`,
+			// FK `cash_account_id` -> cash_account SIN cascade: tiene que salir antes que la cuenta.
+			`delete from public.bank_reconciliation where owner_id = ${id};`,
+			// FK `payment_id` -> payment con ON DELETE RESTRICT: antes del recibo.
 			`delete from public.payment_allocation where owner_id = ${id};`,
+			// FK `payment_id` -> payment y `account_id` -> cash_account: antes de los dos. El `payment`
+			// que genera el vale (SPEC 49) sale con la linea de `payment`, no queda huerfano.
 			`delete from public.petty_cash_vale where owner_id = ${id};`,
+			// FK `source_account_id` y `target_account_id` -> cash_account: referencia la cuenta DOS
+			// veces, sin cascade, asi que va antes que ella.
+			`delete from public.cash_transfer where owner_id = ${id};`,
+			// FK `cash_count_id` -> cash_count (cascade): se borra por padre.
+			`delete from public.cash_count_denomination where cash_count_id in (select id from public.cash_count where owner_id = ${id});`,
+			// FK `cash_account_id` -> cash_account sin cascade y `owner_id` -> auth.users tambien sin
+			// cascade: ninguno de los dos borrados la alcanza, hay que nombrarla.
+			`delete from public.cash_count where owner_id = ${id};`,
+			// FK `cash_close_id` -> cash_close (cascade): se borra por padre, como los arqueos.
+			`delete from public.cash_close_denomination where cash_close_id in (select id from public.cash_close where owner_id = ${id});`,
+			// FK `cash_account_id` -> cash_account.
+			`delete from public.cash_close where owner_id = ${id};`,
+			// FKs `cash_account_id`, `category_id` y `method_id`: antes de las tres tablas.
 			`delete from public.payment where owner_id = ${id};`,
 			`delete from public.comprobante where owner_id = ${id};`,
 			`delete from public.entidad where owner_id = ${id};`,
-			`delete from public.cash_close where owner_id = ${id};`,
+			// FK `owner_id` -> auth.users (cascade): se borra antes que el usuario, y despues de todo
+			// lo que la referencia (recibos, transferencias, cierres, arqueos, conciliaciones).
 			`delete from public.cash_account where owner_id = ${id};`,
 			`delete from public.payment_method where owner_id = ${id};`,
 			`delete from public.cash_receipt_category where owner_id = ${id};`,
+			// `app_setting` NO tiene FK a auth.users (migracion 20261006063301): borrar el usuario no
+			// la toca, asi que hay que nombrarla o la fila queda huerfana para siempre (L8).
+			`delete from public.app_setting where owner_id = ${id};`,
 			`delete from auth.users where id = ${id};`,
 			"commit;",
 			"",

@@ -118,8 +118,25 @@ export function AppNavbar({ user }: { user: SessionUser }) {
         </Link>
 
         <div className="min-w-0 flex-1 overflow-x-auto">
-          <NavigationMenu>
-            <NavigationMenuList>
+          {/*
+            * `justify-start` en la RAIZ, no solo en la lista: el vertical de cajas-bancos llevo la
+            * barra a 15 entradas y el primitivo centra por defecto (`justify-center` en
+            * ui/navigation-menu.tsx). Su unico hijo no puede encogerse por debajo de su contenido
+            * (~1.700px en una franja de ~650px), asi que centrar reparte el desborde por los DOS
+            * lados: el de la izquierda queda en offset negativo y el navegador no puede scrollear
+            * hacia alla. Consecuencia real, no teorica: las cinco primeras entradas (Resumen,
+            * Ingresos, Egresos, Maestro, Caja y bancos) eran inalcanzables en un viewport de 1280px y
+            * el click aterrizaba en el logo. Lo encontro el e2e del vertical (spec 09); el spec 08
+            * tambien lo estaba sufriendo por la entrada "Maestro".
+            *
+            * Se arregla aca y no en el default del primitivo: cambiar el default de un componente
+            * compartido para un problema de densidad de esta barra seria mover el problema al
+            * proximo consumidor.
+            */}
+          <NavigationMenu className="justify-start">
+            {/* La lista tambien va con `justify-start`: importa cuando el contenido SI entra y el
+              * sobrante es de la raiz, no de la lista. */}
+            <NavigationMenuList className="justify-start">
               {LINKS.map((item) => (
                 <NavigationMenuItem key={item.href}>
                   <NavigationMenuLink

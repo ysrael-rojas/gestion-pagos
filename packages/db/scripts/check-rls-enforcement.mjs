@@ -275,6 +275,64 @@ try {
 		return payment.rows[0].id;
 	}
 
+	// Siembra del vertical de cajas y bancos (C8 del port).
+	//
+	// Por que existe: el bloque K recorre TODA tabla de `public` con RLS y al menos una politica,
+	// pero su mitad de comportamiento ("el dueno A no ve filas del dueno B") es VACUA en una tabla
+	// vacia: sin filas ajenas, cero filas se cumple siempre. Las tablas de cajas-bancos entraban al
+	// bloque K sin una sola fila, asi que la politica SELECT se probaba solo por el texto del
+	// predicado. Con una fila por dueno, la politica se prueba por comportamiento.
+	//
+	// Tres tablas y no cinco: `cash_close` y las de denominaciones ya tienen su propio camino (el
+	// historial financiero del bloque L) y sumarlas aca solo agranda el fixture sin probar nada
+	// nuevo; transferencia, vale y conciliacion son las tres que el vertical escribe por si mismo.
+	async function seedCajas(ownerId, label) {
+		// `BANK_ACCOUNT` exige `bank_name` (check de la tabla), y la transferencia exige cuentas
+		// distintas y monto > 0, asi que hacen falta dos cuentas bancarias por dueno.
+		const source = await scratch.query(
+			`insert into public.cash_account (owner_id, type, name, bank_name)
+			 values ($1, 'BANK_ACCOUNT', $2, 'Banco check')
+			 returning id`,
+			[ownerId, `${label} banco origen`],
+		);
+		const target = await scratch.query(
+			`insert into public.cash_account (owner_id, type, name, bank_name)
+			 values ($1, 'BANK_ACCOUNT', $2, 'Banco check')
+			 returning id`,
+			[ownerId, `${label} banco destino`],
+		);
+		const transfer = await scratch.query(
+			`insert into public.cash_transfer (owner_id, source_account_id, target_account_id, amount, notes)
+			 values ($1, $2, $3, 50.00, 'transferencia check')
+			 returning id`,
+			[ownerId, source.rows[0].id, target.rows[0].id],
+		);
+		const vale = await scratch.query(
+			`insert into public.petty_cash_vale (owner_id, account_id, serial, paid_to, concept, amount)
+			 values ($1, $2, 1, 'Proveedor check', 'Compra check', 20.00)
+			 returning id`,
+			[ownerId, source.rows[0].id],
+		);
+		const reconciliation = await scratch.query(
+			`insert into public.bank_reconciliation (owner_id, cash_account_id, period_start, period_end,
+			                                         statement_balance, books_balance)
+			 values ($1, $2, current_date - 30, current_date, 100.00, 90.00)
+			 returning id`,
+			[ownerId, target.rows[0].id],
+		);
+		await scratch.query(
+			`insert into public.bank_reconciliation_item (reconciliation_id, kind, description, amount)
+			 values ($1, 'DEPOSITO_EN_TRANSITO', 'Item check', 10.00)`,
+			[reconciliation.rows[0].id],
+		);
+
+		return {
+			transfer: transfer.rows[0].id,
+			vale: vale.rows[0].id,
+			reconciliation: reconciliation.rows[0].id,
+		};
+	}
+
 	const entidadA = await seedEntidad(ownerA, 'Cliente del dueno A', 'cliente-a@example.com');
 	const entidadB = await seedEntidad(ownerB, 'Cliente del dueno B', 'cliente-b@example.com');
 	const paymentA = await seedPayment(ownerA, 'Caja del dueno A');
@@ -290,6 +348,12 @@ try {
 				`${seeded.rows[0].entidades} y ${seeded.rows[0].pagos}`,
 		);
 	}
+
+	// Despues del guard de arriba: el vertical de cajas trae sus propias cuentas y no debe cambiar
+	// el conteo del fixture que ya estaba. Un trigger que escribiera `payment` desde una de estas
+	// filas lo delataria ese guard, y por eso el orden es este y no el inverso.
+	const cajasA = await seedCajas(ownerA, 'dueno A');
+	const cajasB = await seedCajas(ownerB, 'dueno B');
 
 	// Cuenta las filas de una tabla desde la sesion de owner (el fixture, sin RLS de por medio).
 	const ownerCount = async (table, column, value) => {
@@ -498,6 +562,12 @@ try {
 	const CROSS_OWNER_UPDATES = [
 		{ table: "entidad", column: "name", mutation: "name = 'Intruso'", target: entidadB, expected: "Cliente del dueno B" },
 		{ table: "payment", column: "void_reason", mutation: "void_reason = 'intruso'", target: paymentB, expected: null },
+		// Vertical de cajas y bancos: no hay politica de UPDATE en estas tablas (su politica es
+		// SELECT, y en el vale ademas INSERT), asi que el update cruzado afecta 0 filas por RLS y no
+		// por privilegio (el GRANT de UPDATE sigue ahi: es la deuda L12a del doc del vertical,
+		// documentada y no cerrada aca).
+		{ table: "cash_transfer", column: "notes", mutation: "notes = 'intruso'", target: cajasB.transfer, expected: "transferencia check" },
+		{ table: "petty_cash_vale", column: "concept", mutation: "concept = 'intruso'", target: cajasB.vale, expected: "Compra check" },
 	];
 
 	for (const target of CROSS_OWNER_UPDATES) {
@@ -546,6 +616,11 @@ try {
 	const CROSS_OWNER_DELETES = [
 		{ table: "entidad", target: entidadB, refusal: "missing-policy" },
 		{ table: "payment", target: paymentB, refusal: "missing-privilege" },
+		// Vertical de cajas y bancos: DELETE concedido y sin politica de DELETE, o sea el mismo caso
+		// que `entidad`. Se afirma 0 filas, no 42501: si alguien revoca el privilegio esta asercion
+		// falla y hay que decidir cual de los dos rechazos es el correcto, en vez de aceptar los dos.
+		{ table: "cash_transfer", target: cajasB.transfer, refusal: "missing-policy" },
+		{ table: "bank_reconciliation", target: cajasB.reconciliation, refusal: "missing-policy" },
 	];
 
 	for (const target of CROSS_OWNER_DELETES) {

@@ -246,12 +246,48 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   C4 cierres/arqueos, C5 pantallas base, C6 transferencias/caja chica, C7 conciliación y
   configuración, C8 e2e y RLS. C4 lleva riesgo 1 (irreversible) y 4 (concurrencia) y por eso va con
   verificación independiente.
+- **L23 — C8: el e2e pago su deuda y encontro dos defectos de producto.** El spec 09 (6 casos) es la
+  primera prueba en navegador de las pantallas de C5, C6 y C7, y encontro dos cosas que ningún test
+  de API ni de tipos podía ver: (a) el `NavigationMenu` centraba, así que con 15 entradas el
+  desborde se repartía a los dos lados y las cinco primeras quedaban en offset negativo, donde el
+  navegador no puede scrollear: `Resumen`, `Ingresos`, `Egresos`, `Maestro` y `Caja y bancos` eran
+  inalcanzables a 1280px y el click aterrizaba en el logo (el spec 08 ya lo sufría con `Maestro`);
+  (b) `cashAccountSchema` es contrato de la fila Y del body del API, y el formulario manda la salida
+  ya parseada (`closingPeriodicity: null`), que el contrato rechazaba con 400 `invalid_union` para
+  casi toda cuenta. Los arreglos van en commits propios (`8481d7b`, `32a342d`) porque tocan
+  superficie compartida.
+- **L24 — C8: tres fallos del SPEC, no del producto, y la diferencia importó.** Las dos corridas
+  intermedias fallaron por locators ambiguos: `getByText("Resultado del mes")` resolvía a la
+  bajada del encabezado y al título de la tarjeta, y `getByRole("link", { name: "Cuadres de
+  caja" })` resolvía al link del navbar (`Cuadres de Caja`, que `getByRole` compara sin distinguir
+  mayúsculas) y al acceso rápido. Se corrigieron con `exact: true` y el motivo quedó comentado en
+  el spec. No se barrieron los otros 22 locators sin `exact`: pasan, y endurecerlos sin un caso que
+  los rompa es cambio no verificable.
+- **L25 — C8: qué se cerró de RLS y qué no, con la matriz medida.** Evidencia dura de L12(a) leída
+  de `information_schema.role_table_grants`: `authenticated` tiene **INSERT,SELECT** en `payment`
+  y `cash_close`, y **DML completo** en `cash_account`, `cash_count`, `cash_close_denomination`,
+  `cash_count_denomination`, `cash_transfer`, `petty_cash_vale`, `bank_reconciliation` y
+  `bank_reconciliation_item`. **No se revoca en C8**: anular un vale desde la UI es un UPDATE sobre
+  `petty_cash_vale`, así que cerrar el hardening exige grants por columna como los de `payment`, y
+  eso es un slice propio con verificación independiente, no un apéndice del port. Lo que sí cierra
+  C8 es el aislamiento **por comportamiento** sobre filas reales: `seedCajas` siembra transferencia,
+  vale y conciliación (acta + partida) para los dos dueños, o sea que el bloque K deja de ser vacuo
+  para esas tablas (`1 fila visible, 0 ajenas`), y se agregan 2 aserciones F y 2 G cruzadas.
+- **L26 — C8: el entorno miente con exit 0.** `docker compose` **no existe** en esta instalación
+  (el CLI no tiene registrado el plugin, aunque el binario esté en `resources/cli-plugins`), así que
+  el camino documentado en `compose.yaml` no corre: la base se levanta con `docker start
+  gestion-pagos-db-dev`. Peor, dos jobs en background devolvieron **exit 0 con la corrida abortada**
+  porque el pipe a `tail` se come el código de salida de Playwright; se corrigió con
+  `set -o pipefail`. Y `db-dev` no tiene política de reinicio (a diferencia de `db-prod`), así que
+  cada reinicio del motor la deja abajo y el primer e2e falla por un motivo que parece del suite.
+  Deuda de entorno, no del port.
 
 ## Estado para retomar (handoff)
 
-**Donde esta todo.** Rama `feat/vertical-cajas-bancos`, 11 commits sobre `main`, **sin push**. Siete
-de los ocho slices estan hechos y verdes; solo falta C8. El documento de arriba es la spec, el plan y
-el log: una sesion nueva se lee de aca hasta `## Log` y arranca en C8.
+**Donde esta todo.** Rama `feat/vertical-cajas-bancos`, 19 commits sobre `main`, **sin push**. Los
+ocho slices estan hechos y verdes: el vertical esta completo. El documento de arriba es la spec, el
+plan y el log: una sesion nueva se lee de aca hasta `## Log`. Lo que queda es **publicacion**, que es
+decision del humano, y las deudas anotadas abajo.
 
 **Lo hecho, con su evidencia.**
 
@@ -266,14 +302,18 @@ el log: una sesion nueva se lee de aca hasta `## Log` y arranca en C8.
 | C6 transferencias, caja chica y extractos (web) | `b7cec9b` | `pnpm --filter @gestion/web test` 82/82 |
 | C7 conciliacion, catalogos y flujo (API) | `cb20674` | `bank-reconciliation.e2e` 7/7, `cash-flow.e2e` 5/5, `catalogs-write.e2e` 11/11 |
 | C7 conciliacion, configuracion y dashboard (web) | `368d3f9` | `pnpm --filter @gestion/web test` 111/111 |
+| C8 spec 09, teardown y baseline | `acc3287` | spec 09 6/6, `pnpm e2e` 22/22 (8.1m), conteos identicos antes y despues |
+| C8 RLS de las tablas de cajas | `82f00ce` | `db:check-rls` 46/46 (42 antes) |
+| Arreglos que el e2e obligo (fuera de slice C8) | `32a342d`, `8481d7b` | `cash-accounts.e2e` 9/9, suite 22/22 |
 
 Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despues de cada slice.
 
 **Lo que falta, en orden.**
-1. **C8** — e2e del vertical (la prueba real de las pantallas de C5, C6 y C7), teardown y baseline de
-   las tablas de caja, RLS y docs. **Antes de escribir el spec 09**, ver "trampas".
-2. Con C8 cerrado, el vertical queda completo: la deuda que quede es de publicacion (forma del PR,
-   que es decision del humano) y las deudas anotadas abajo.
+1. **Publicar** (decision del humano): PR encadenado o unico. El vertical supera las 11.000 lineas.
+2. **Deuda L12(a), con la matriz ya medida en L25**: revocar UPDATE/DELETE en las tablas de cajas
+   exige grants por columna para la anulacion del vale. Slice propio, con verificacion independiente.
+3. **Deuda de entorno (L26)**: `db-dev` sin politica de reinicio y `docker compose` no operable en
+   esta instalacion. Nada de esto es del producto.
 
 **Trampas que ya costaron tiempo, no las redescubras.**
 - **El puente se olvida.** Cada prefijo nuevo tiene que agregarse a `ALLOWED_PREFIXES` de
@@ -316,9 +356,11 @@ Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despu
   por contrato del slice y es codigo a vigilar, no a borrar sin decidir.
 - `GET /bank-reconciliations/:id` existe y hoy no tiene consumidor: la pantalla lee por triplete. Se
   dejo por simetria con `cash-closes`; si nadie lo usa en C8, es candidato a borrarse.
-- C8 tiene que agregar al teardown `cash_transfer`, `petty_cash_vale`, `bank_reconciliation`,
-  `bank_reconciliation_item` y `app_setting` (L5 y L8), y al baseline del e2e las cinco tablas.
+- **L5 y L8 — cerradas en C8.** El teardown borra `cash_transfer`, `petty_cash_vale`,
+  `bank_reconciliation`, `bank_reconciliation_item` y `app_setting`, y el baseline cuenta esas cinco
+  mas las cuatro de cajas/arqueos: la corrida del spec 09 dejo los conteos identicos antes y
+  despues.
 
-**Publicacion.** El vertical supera las 11.000 lineas en 6 commits: cuando se publique, la forma
-natural es PR encadenado (API C1-C4, UI C5-C7, e2e C8) o un PR unico con el orden de los commits
-como guia. Es decision del humano, no del documento.
+**Publicacion.** El vertical supera las 11.000 lineas en 19 commits: cuando se publique, la forma
+natural es PR encadenado (API C1-C4, UI C5-C7, e2e y RLS C8) o un PR unico con el orden de los
+commits como guia. Es decision del humano, no del documento.

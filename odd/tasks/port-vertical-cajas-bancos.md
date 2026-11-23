@@ -72,7 +72,10 @@ con el identificador que exige la admision de escritores delegados. No son tarea
   `cash-transfers.e2e` 8/8 y `petty-cash.e2e` 9/9 contra la base viva, 82/82 unitarios de la web
   (eran 60), typecheck api+web 0, commits `5f08055` (api) y `b7cec9b` (web).
 - C7 — Conciliación, configuración y dashboard/proyección.
-  Specs: S1, S2. Ruta: pendiente. Commit: _(pendiente)_.
+  Specs: S1, S2. Ruta: dos workers secuenciales (API y web). **Hecho**: `bank-reconciliation.e2e`
+  7/7, `cash-flow.e2e` 5/5, `catalogs-write.e2e` 11/11, vecinos `catalogs` 6/6, `payments` 18/18 y
+  `cash-closes` 12/12 intactos; 111/111 unitarios de la web, typecheck api+web 0. Commits `cb20674`
+  (api) y `368d3f9` (web).
 - C8 — e2e del vertical, teardown y baseline de las tablas de caja, RLS y docs.
   Specs: S9. Ruta: pendiente. Commit: _(pendiente)_.
 
@@ -103,6 +106,12 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   transacción); en `b7cec9b` `cuentas-view.tsx` (el `refreshKey` y la intersección
   cuentas∩posiciones) y `cuadre-report.tsx` (el `StatementTable` completo reemplaza a la tabla
   reducida, y el CSV gana la columna `Tipo`).
+- **Slice 6 — `cb20674` + `368d3f9`** `feat(api)` y `feat(web)`: conciliación, configuración y
+  dashboard (C7). Mismo corte por capa que C6. **Revisar:** en `cb20674`, `cash-flow.service.ts`
+  (el filtro copiado del origen, sin predicado de `is_cash_movement`) y
+  `bank-reconciliations.controller.ts` (por qué el `null` se escribe a mano); en `368d3f9`,
+  `conciliacion.ts` (el body no transporta `difference` ni `reconciledBalance`) y
+  `categorias-card.tsx` con el `onlyActive` nuevo.
 
 ## Log
 
@@ -217,6 +226,22 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   prueba real es el spec 09 de C8. `app-navbar.tsx` estaba fuera de las superficies del worker: la
   entrada de Extractos la agrego el padre, y con ella se corrigio el comentario que decia "extractos
   NO se enlaza".
+- **L20 — C7: el recon que evito construir de mas.** El dashboard no tenia contrato en la base: los
+  totales del mes salen de un SELECT sobre `payment`, no de una RPC. El port no podia reusar
+  `GET /payments` (topa en `pageSize`) ni sumar paginas en Node, asi que se agrego un agregado en
+  SQL con el filtro exacto del origen (`status <> 'ANULADO'` y fechas inclusivas) y SIN predicado de
+  `is_cash_movement`: el origen tampoco lo tiene, y agregarlo habria cambiado el numero del
+  dashboard. El brief del padre decia "copia su trato de isCashMovement" y era falso; el worker lo
+  corrigio en vez de obedecer.
+- **L21 — C7: la conciliacion no tiene lectura en SQL.** `save_bank_reconciliation` escribe, pero no
+  hay funcion ni vista de lectura: el API lee las dos tablas (politica SELECT) por su cuenta, con
+  match EXACTO de `(cuenta, inicio, fin)` y `null` cuando no hay acta. `null` y no 404: "no hay
+  conciliacion para ese periodo" es el estado normal que abre un formulario en blanco.
+- **L22 — C7: desactivar una categoria era irreversible desde la UI.** `GET /receipt-categories`
+  devolvia solo activas, asi que el `PATCH` de reactivacion no tenia fila que lo disparara y una
+  categoria desactivada desaparecia para siempre. El writer documento la limitacion en pantalla; el
+  padre agrego `onlyActive` con default `true` (aditivo: el formulario de pagos no cambia, pineado
+  por `catalogs.e2e` 6/6 mas un test nuevo que fija las dos caras) y el card ahora lista todas.
 - **L6 — Orden de slices acordado (recon, seccion 7).** C1 settings, C2 cuentas, C3 posiciones,
   C4 cierres/arqueos, C5 pantallas base, C6 transferencias/caja chica, C7 conciliación y
   configuración, C8 e2e y RLS. C4 lleva riesgo 1 (irreversible) y 4 (concurrencia) y por eso va con
@@ -224,9 +249,9 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
 
 ## Estado para retomar (handoff)
 
-**Donde esta todo.** Rama `feat/vertical-cajas-bancos`, 9 commits sobre `main`, **sin push**. Seis
-de los ocho slices estan hechos y verdes; C7 y C8 no se empezaron. El documento de arriba es la
-spec, el plan y el log: una sesion nueva se lee de aca hasta `## Log` y arranca en C7.
+**Donde esta todo.** Rama `feat/vertical-cajas-bancos`, 11 commits sobre `main`, **sin push**. Siete
+de los ocho slices estan hechos y verdes; solo falta C8. El documento de arriba es la spec, el plan y
+el log: una sesion nueva se lee de aca hasta `## Log` y arranca en C8.
 
 **Lo hecho, con su evidencia.**
 
@@ -239,16 +264,16 @@ spec, el plan y el log: una sesion nueva se lee de aca hasta `## Log` y arranca 
 | C5 pantallas base | `509f684` | `pnpm --filter @gestion/web test` 60/60, typecheck 0 |
 | C6 transferencias y caja chica (API) | `5f08055` | `cash-transfers.e2e` 8/8, `petty-cash.e2e` 9/9 |
 | C6 transferencias, caja chica y extractos (web) | `b7cec9b` | `pnpm --filter @gestion/web test` 82/82 |
+| C7 conciliacion, catalogos y flujo (API) | `cb20674` | `bank-reconciliation.e2e` 7/7, `cash-flow.e2e` 5/5, `catalogs-write.e2e` 11/11 |
+| C7 conciliacion, configuracion y dashboard (web) | `368d3f9` | `pnpm --filter @gestion/web test` 111/111 |
 
 Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despues de cada slice.
 
 **Lo que falta, en orden.**
-1. **C7** — conciliacion (`save_bank_reconciliation`: upsert por `(cuenta, periodo)` con partidas
-   delete-then-insert, `for update` sobre la cuenta, 9 mensajes de dominio), configuracion
-   (metodos de pago y categorias, que ya tienen lectura) y dashboard/proyeccion. Necesita su
-   prefijo `bank-reconciliations` en el puente y su propio mapa de errores.
-2. **C8** — e2e del vertical (la prueba real de las pantallas de C5 y C6), teardown y baseline de
+1. **C8** — e2e del vertical (la prueba real de las pantallas de C5, C6 y C7), teardown y baseline de
    las tablas de caja, RLS y docs. **Antes de escribir el spec 09**, ver "trampas".
+2. Con C8 cerrado, el vertical queda completo: la deuda que quede es de publicacion (forma del PR,
+   que es decision del humano) y las deudas anotadas abajo.
 
 **Trampas que ya costaron tiempo, no las redescubras.**
 - **El puente se olvida.** Cada prefijo nuevo tiene que agregarse a `ALLOWED_PREFIXES` de
@@ -286,8 +311,13 @@ Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despu
   `bank_reconciliation*`: todas tienen politica SELECT unicamente.
 - L8 — `apps/api/src/db/schema/index.ts` no exporta los schemas nuevos (`cash_transfer`,
   `petty_cash_vale` y los dos de C7 cuando lleguen): los servicios importan directo.
-- C7 necesitara su propio prefijo en el puente (`bank-reconciliations`) y su mapa de errores para
-  los 9 mensajes de `save_bank_reconciliation`.
+- C7 no dejo prefijo pendiente: `bank-reconciliations` y `cash-flow` ya estan en el puente.
+- L20 deja `summarizeCashFlow` sin consumidor de produccion (el agregado SQL lo reemplazo): se porto
+  por contrato del slice y es codigo a vigilar, no a borrar sin decidir.
+- `GET /bank-reconciliations/:id` existe y hoy no tiene consumidor: la pantalla lee por triplete. Se
+  dejo por simetria con `cash-closes`; si nadie lo usa en C8, es candidato a borrarse.
+- C8 tiene que agregar al teardown `cash_transfer`, `petty_cash_vale`, `bank_reconciliation`,
+  `bank_reconciliation_item` y `app_setting` (L5 y L8), y al baseline del e2e las cinco tablas.
 
 **Publicacion.** El vertical supera las 11.000 lineas en 6 commits: cuando se publique, la forma
 natural es PR encadenado (API C1-C4, UI C5-C7, e2e C8) o un PR unico con el orden de los commits

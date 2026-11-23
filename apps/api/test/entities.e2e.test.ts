@@ -407,6 +407,53 @@ test("un payload invalido responde 400 con el issue del contrato compartido y no
 	assert.equal(badName.body?.issues?.[0]?.message, "El nombre es requerido");
 });
 
+test("un owner_id en el body se ignora: el dueno sale siempre de la sesion", async () => {
+	// Cierra el agujero que dejo la verificacion independiente: sin este caso, un cambio que
+	// aceptara `owner_id` desde el payload no rompia ningun test. El schema compartido no declara
+	// la columna, asi que Zod la descarta antes del servicio.
+	const intruderBefore = await liveEntityCount(intruder.ownerId);
+
+	const forged = await call("POST", "/entities", {
+		cookie: owner.cookie,
+		body: { ...clientBody({ name: "Alta con dueno inyectado" }), owner_id: intruder.ownerId },
+	});
+
+	assert.equal(forged.status, 201, "la columna sobrante no invalida el payload, se descarta");
+	assert.equal(
+		(await rawRow(forged.body.id as string))?.owner_id,
+		owner.ownerId,
+		"la fila es del dueno de la SESION, no del que vino en el body",
+	);
+	assert.equal(
+		await liveEntityCount(intruder.ownerId),
+		intruderBefore,
+		"el otro dueno no recibio ninguna fila",
+	);
+});
+
+test("modificar un cliente a un documento ya usado responde 409 con el mensaje del vertical", async () => {
+	// La rama `23505` del update no tenia test: solo se probaba el duplicado en el alta.
+	const taken = `2099${randomUUID().replace(/[^0-9]/g, "").padEnd(7, "3").slice(0, 7)}`;
+	const free = `2077${randomUUID().replace(/[^0-9]/g, "").padEnd(7, "5").slice(0, 7)}`;
+
+	const first = await createEntity(
+		clientBody({ documentType: "RUC", documentNumber: taken, name: "RUC ocupado" }),
+	);
+	await createEntity(clientBody({ documentType: "RUC", documentNumber: free, name: "RUC libre" }));
+
+	const before = await liveEntityCount(owner.ownerId);
+	const collision = await call("PATCH", `/entities/${first}`, {
+		cookie: owner.cookie,
+		body: clientBody({ documentType: "RUC", documentNumber: free, name: "RUC ocupado" }),
+	});
+
+	assert.equal(collision.status, 409);
+	assert.equal(collision.body?.message, DUPLICATE_MESSAGE);
+	assert.notEqual(collision.body?.message, PAYMENTS_CONFLICT_MESSAGE);
+	assert.equal((await rawRow(first))?.document_number, taken, "la fila rechazada no cambio");
+	assert.equal(await liveEntityCount(owner.ownerId), before);
+});
+
 test("el numero de documento es unico entre duenos: el indice heredado no lleva owner_id", async () => {
 	// HALLAZGO (log L7 del doc de la feature): `entidad_document_unique` es
 	// (document_type, document_number) sin `owner_id`, asi que la unicidad es GLOBAL. Es una

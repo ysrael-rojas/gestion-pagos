@@ -3,7 +3,7 @@
 // Corre una sola vez, despues de todos los specs y de sus teardowns. Vuelve a medir las mismas
 // tablas y falla si alguna diferencia con el baseline. Es el check que convierte "cada spec borra
 // lo suyo" en algo verificado en vez de prometido: si un teardown de un spec se rompe, la corrida
-// entera termina en rojo aunque los 7 specs hayan pasado.
+// entera termina en rojo aunque los 9 specs hayan pasado.
 //
 // `receipt_sequence` se cuenta por filas: el alta de un pago tiene que avanzar `last_serial`, asi
 // que exigir que el valor vuelva atras seria exigir que la funcionalidad no funcionara.

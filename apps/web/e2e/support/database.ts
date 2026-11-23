@@ -25,6 +25,20 @@ export const COUNTED_TABLES = [
 	"public.cash_receipt_category",
 	"public.payment_method",
 	"public.receipt_sequence",
+	// Vertical de cajas y bancos (C8): las mismas tablas que `deleteOwnerFixtures` limpia para el
+	// vertical. Una tabla que el teardown borra y el baseline no cuenta es una fuga silenciosa: el
+	// suite queda verde mientras las filas se acumulan (L5 del doc del vertical).
+	"public.cash_close",
+	"public.cash_close_denomination",
+	"public.cash_count",
+	"public.cash_count_denomination",
+	"public.cash_transfer",
+	"public.petty_cash_vale",
+	"public.bank_reconciliation",
+	"public.bank_reconciliation_item",
+	// Sin FK a `auth.users` (`20261006063301`): si el teardown la olvida, borrar el dueno no deja
+	// rastro y solo el conteo lo delata (L8).
+	"public.app_setting",
 	"auth.users",
 	"auth.session",
 	"auth.account",

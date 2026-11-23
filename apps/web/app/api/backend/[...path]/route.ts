@@ -29,6 +29,9 @@ const ALLOWED_PREFIXES = new Set([
   // el navegador recibe 404 del puente aunque la ruta exista en el API.
   "cash-positions",
   "last-movement-dates",
+  // C4: cierres y arqueos. Las dos escrituras van por POST (las RPC del API), igual que el resto.
+  "cash-closes",
+  "cash-counts",
   "payment-methods",
   "receipt-categories",
   "catalogs",

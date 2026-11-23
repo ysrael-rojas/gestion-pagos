@@ -21,7 +21,12 @@
 // aca (en vez de importarse de apps/api) porque `apps/web` no depende de `@gestion/api`: el
 // paquete del backend no es publicable y su build es un bundle de esbuild. Cambiar un campo alla
 // es cambiar este archivo, y el unico lugar donde eso se nota rapido son los tests de la UI.
-import type { ClientFormValues, PaymentFormValues } from "@gestion/shared";
+import type {
+  CashCloseFormValues,
+  CashCountFormValues,
+  ClientFormValues,
+  PaymentFormValues,
+} from "@gestion/shared";
 
 const DEFAULT_API_BASE_URL = "http://localhost:3001";
 
@@ -291,6 +296,79 @@ export interface CashAccountPosition {
  * justo lo que el origen decidia con este mapa (`lib/caja/caja.ts:478-500`).
  */
 export type LastMovementDates = Record<string, string>;
+
+/**
+ * Una fila del conteo fisico de un cierre (`cash_close_denomination`).
+ *
+ * Es el `CloseDenomination` del origen (`lib/caja/caja.ts`, `listCloseDenominations`), la misma
+ * forma que manda el modal al cerrar, asi que la grilla del acta no traduce nada.
+ */
+export interface CloseDenomination {
+  denomination: number;
+  quantity: number;
+}
+
+/**
+ * Un cierre de caja (`GET /cash-closes`, `apps/api/src/cash/closes.types.ts`).
+ *
+ * Es el `CashClose` del origen campo por campo (`components/pagos/types.ts:103-130`): los totales
+ * y la `difference` los escribio la RPC `close_cash_account`, no la app (S2). `differenceTolerance`
+ * es el snapshot de la tolerancia vigente al cerrar y `countedBy`/`verifiedBy` la doble firma del
+ * acta; los tres son `null` en los cierres anteriores a esas migraciones.
+ */
+export interface CashCloseRecord {
+  id: string;
+  cashAccountId: string;
+  periodicity: ClosingPeriodicity;
+  periodStart: string;
+  periodEnd: string;
+  openingBalance: number;
+  incomeTotal: number;
+  expenseTotal: number;
+  expectedBalance: number;
+  transferInTotal: number;
+  transferOutTotal: number;
+  countedBalance: number | null;
+  changeFund: number | null;
+  difference: number | null;
+  differenceReason: string | null;
+  differenceTolerance: number | null;
+  countedBy: string | null;
+  verifiedBy: string | null;
+  penUsdRate: number | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+/**
+ * `GET /cash-closes/:id` y la respuesta del alta: el cierre con su arqueo por denominacion.
+ *
+ * El origen pedia el cierre y el detalle en paralelo; el API los devuelve juntos porque los lee
+ * en la misma transaccion. `denominations` viene vacio en los cierres de banco.
+ */
+export interface CashCloseDetail extends CashCloseRecord {
+  denominations: CloseDenomination[];
+}
+
+/**
+ * Un arqueo sorpresivo (`GET /cash-counts`, `lib/caja/arqueos.ts:8-21` del origen).
+ *
+ * `expectedBalance` y `difference` los calculo `register_cash_count` con la misma formula que el
+ * cierre (`private.cash_expected_balance`): la UI los muestra, no los deriva.
+ */
+export interface CashCountRecord {
+  id: string;
+  accountId: string;
+  countDate: string;
+  countedBalance: number;
+  expectedBalance: number;
+  difference: number;
+  changeFund: number | null;
+  countedBy: string | null;
+  isSurprise: boolean;
+  notes: string | null;
+  createdAt: string;
+}
 
 export interface PaymentMethodCatalogItem {
   id: string;
@@ -701,6 +779,62 @@ export function getCashPosition(accountId: string, asOf?: string): Promise<numbe
  */
 export function listLastMovementDates(): Promise<LastMovementDates> {
   return request<LastMovementDates>("/last-movement-dates");
+}
+
+/**
+ * Cierres del dueno (`listCashCloses` del origen), del mas reciente al mas antiguo.
+ *
+ * `accountId` es el filtro de la pantalla de cuadres; sin el vuelve el historial completo, que es
+ * lo que necesita el dashboard para consolidar.
+ *
+ * El prefijo `cash-closes` todavia NO esta en la lista blanca del puente del navegador
+ * (`app/api/backend/[...path]/route.ts`): desde un Server Component anda, desde el navegador
+ * responde 404 del puente hasta que se agregue alla (fuera de la superficie de C4).
+ */
+export function listCashCloses(accountId?: string): Promise<CashCloseRecord[]> {
+  return request<CashCloseRecord[]>("/cash-closes", { query: { accountId } });
+}
+
+/**
+ * Un cierre con su arqueo (`getCashClose` + `listCloseDenominations` del origen).
+ *
+ * Un id inexistente o de otro dueno responde 404: la RLS recorta la fila antes de que el API la
+ * vea, asi que nunca se devuelven las denominaciones de otro dueno.
+ */
+export function getCashClose(id: string): Promise<CashCloseDetail> {
+  return request<CashCloseDetail>(`/cash-closes/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Cierra un periodo (`closeCashAccount` del origen, RPC `close_cash_account`).
+ *
+ * El body es el contrato del modal (`CashCloseFormValues` de `@gestion/shared`). Las reglas que
+ * deciden si el cierre se permite las aplica la base (periodo ya cerrado, fecha futura,
+ * tolerancia sin motivo): el `ApiError` trae su mensaje ya redactado y el modal lo muestra tal
+ * cual. El cierre es IRREVERSIBLE: no hay endpoint de reapertura.
+ */
+export function createCashClose(values: CashCloseFormValues): Promise<CashCloseDetail> {
+  return request<CashCloseDetail>("/cash-closes", { method: "POST", body: values });
+}
+
+/**
+ * Arqueos sorpresivos del dueno (`listCashCounts` del origen), del mas reciente al mas antiguo.
+ *
+ * Filtro `accountId` como en los cierres; el mismo aviso del puente del navegador aplica al
+ * prefijo `cash-counts`.
+ */
+export function listCashCounts(accountId?: string): Promise<CashCountRecord[]> {
+  return request<CashCountRecord[]>("/cash-counts", { query: { accountId } });
+}
+
+/**
+ * Registra un arqueo que no cierra periodo (`createCashCount`, RPC `register_cash_count`).
+ *
+ * Devuelve la fila recien creada, que es lo que el origen releia con `getCashCount` despues de
+ * la RPC.
+ */
+export function createCashCount(values: CashCountFormValues): Promise<CashCountRecord> {
+  return request<CashCountRecord>("/cash-counts", { method: "POST", body: values });
 }
 
 /** Metodos de pago (`listPaymentMethods`). */

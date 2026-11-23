@@ -18,9 +18,12 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
   `get_cash_positions` la reimplementan inline. O sea que la "única fórmula" son en realidad tres
   definiciones en SQL: cambiar la semántica exige tocar las tres.
 - **S3 — Cierre y arqueo son RPC, no DML.** `close_cash_account` y `register_cash_count` son
-  `security definer` y las tablas `cash_close`/`cash_close_denomination`/`cash_count` tienen el
-  INSERT/UPDATE/DELETE revocado para `authenticated`. Si el port intentara escribir esas tablas,
-  falla con 42501: eso es el contrato, no un bug.
+  `security definer`. Si el port intentara escribir `cash_close`/`cash_close_denomination`/
+  `cash_count` directamente, falla con 42501. **Corregido en L12**: el revoke de
+  `20261006063301` lo revirtió `20261029101500:96` (grant table-wide a `authenticated`), así que
+  hoy lo que rechaza el DML directo es la RLS — esas tablas solo tienen política SELECT — y el
+  SQLSTATE sigue siendo 42501. El efecto observable es el mismo que afirmeaba la spec; el
+  mecanismo no.
 - **S4 — El cierre es irreversible y valida en SQL.** No hay reapertura. La base rechaza
   `period_end > current_date`, un período ya cerrado (`El periodo ya esta cerrado hasta %`), un
   `period_end` anterior al saldo inicial, y una diferencia mayor a
@@ -55,7 +58,8 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
 - C3 — Posiciones y fechas: `GET /cash-positions`, `/cash-accounts/:id/position`, `/last-movement-dates`.
   Specs: S2, S6. Ruta: pendiente. Commit: _(pendiente)_.
 - C4 — Cierres y arqueos por RPC: `GET/POST /cash-closes`, `GET/POST /cash-counts`.
-  Specs: S2, S3, S4, S5. Ruta: pendiente. Commit: _(pendiente)_.
+  Specs: S2, S3, S4, S5. Ruta: worker + verificación independiente. **Hecho**: 10/10 del e2e nuevo,
+  `payments` 18/18 y catálogos 6/6 verdes, commit: _(pendiente)_.
 - C5 — Pantallas base: provider con escritura, listado, cuentas, cuadres, acta y reporte impresos.
   Specs: S1, S4. Ruta: pendiente. Commit: _(pendiente)_.
 - C6 — Transferencias, caja chica y extractos.
@@ -107,6 +111,17 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   tabla no tiene FK a `auth.users`, así que cada test limpia las suyas; C8 lo lleva al teardown
   común. El barrel `apps/api/src/db/schema/index.ts` no se tocó: el servicio importa el schema
   directo (una línea de seguimiento si se quiere consistencia).
+- **L12 — C4: tres correcciones y una desviación de proceso.** (a) S3 describía mal el mecanismo
+  (ver arriba): el INSERT directo lo bloquea la RLS, no los grants. (b) El body de cierre se arma
+  con `z.object(cashCloseSchema.shape)` a propósito: el `superRefine` del schema compartido rechaza
+  fechas futuras con el reloj del proceso, y ese juicio es de la base (`period_end > current_date`,
+  zona del contenedor). Se conservan todas las reglas de campo y se descarta solo la de objeto; la
+  rama SQL queda alcanzable y sigue devolviendo su mensaje. (c) El puente no tenía `cash-closes` ni
+  `cash-counts`: agregados, como en C3. (d) **El worker no capturó el RED**: escribió test e
+  implementación en el mismo hilo, así que las 10 pruebas verdes no prueban por sí solas que fallen
+  sin la implementación. Se compensa con verificación independiente y con la observación de
+  concurrencia (dos `fetch` simultáneos → `[201, 400]` y una sola fila), que es evidencia real y no
+  una aserción de lectura.
 - **L10 — Corrección de la spec (error del padre) y hallazgo de C3.** Verificado con
   `pg_get_functiondef` en la base viva: `close_cash_account` y `register_cash_count` **sí**
   referencian `private.cash_expected_balance`; `get_cash_position` y `get_cash_positions`

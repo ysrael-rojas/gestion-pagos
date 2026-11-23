@@ -15,11 +15,10 @@
 //     accountId)`: los recibos del periodo MAS las transferencias en las que la cuenta participo,
 //     con la direccion resuelta segun sea origen o destino. Los totales `transferInTotal` /
 //     `transferOutTotal` del acta siguen viniendo del cierre, que los sumo la RPC al cerrar.
-//   - NO: las acciones sobre los recibos del periodo ("Marcar verificado" en bloque y "Registrar
-//     cargo bancario"). La primera es el paso de conciliacion (C7) y la segunda depende de
-//     `bank-charge-modal.tsx`, que no existe en este repo. El `StatementTable` las acepta como
-//     props opcionales y esta pantalla no las pasa: sin ellas la barra de acciones no se dibuja y
-//     la columna de acciones queda vacia, igual que el origen cuando el consumidor no las ofrecia.
+//   - SI (C7): las dos acciones sobre los recibos del periodo, "Marcar verificado" y "Registrar
+//     cargo bancario", que viajan como props opcionales hasta el `StatementTable`. C6 las dejo
+//     fuera porque la conciliacion y el modal de cargos son de este slice; hoy
+//     `cuadres-view.tsx` las pasa y el modal (`bank-charge-modal.tsx`) existe.
 //
 // DESVIO DELIBERADO: la cuenta de la tabla de movimientos sale de `close.cashAccountId` y no de una
 // prop `accountId` como en el origen. Es el mismo dato —el cierre pertenece a esa cuenta— y evita
@@ -99,6 +98,15 @@ interface CuadreReportProps {
   denominations: CloseDenomination[];
   /** Fondo de cambio de la cuenta al momento de ver el reporte. */
   changeFund: number;
+  /**
+   * Marca los recibos indicados como verificados (`POST /payments/mark-processed`).
+   *
+   * Es la accion de conciliacion de C7 y la pasa `cuadres-view.tsx`: sin ella la tabla de
+   * movimientos no dibuja la barra de acciones ni la casilla de cada recibo.
+   */
+  onMarkVerified?: (paymentIds: string[]) => Promise<void> | void;
+  /** Abre el registro de un cargo bancario (ITF, comision, detraccion) para esta cuenta. */
+  onRegisterBankCharge?: () => void;
 }
 
 function formatAmount(value: number, currency: string): string {
@@ -375,6 +383,8 @@ export function CuadreReport({
   accountType,
   denominations,
   changeFund,
+  onMarkVerified,
+  onRegisterBankCharge,
 }: CuadreReportProps) {
   const [printOpen, setPrintOpen] = useState(false);
   const isBank = accountType === "BANK_ACCOUNT";
@@ -585,7 +595,12 @@ export function CuadreReport({
         <div className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">Movimientos</h3>
           {/* Sin `onMarkVerified` ni `onRegisterBankCharge`: son acciones de C7/conciliacion. */}
-          <StatementTable rows={statementRows} currency={currency} />
+          <StatementTable
+            rows={statementRows}
+            currency={currency}
+            onMarkVerified={onMarkVerified}
+            onRegisterBankCharge={onRegisterBankCharge}
+          />
         </div>
       </CardContent>
 

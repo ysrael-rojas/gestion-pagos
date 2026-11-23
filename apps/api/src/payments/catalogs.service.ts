@@ -1,5 +1,6 @@
 // Catalogos del vertical de pagos: las cuatro lecturas que necesita el formulario de alta mas el
-// sembrado explicito de las semillas del origen.
+// sembrado explicito de las semillas del origen, y —desde C7 del vertical de cajas-bancos— las
+// ESCRITURAS de los dos catalogos editables (metodos de pago y categorias de recibo).
 //
 // De donde sale cada lectura (proyecto de origen, leido como fuente):
 //   entities            <- lib/clientes/entidades.ts        (listClients / listSuppliers)
@@ -17,12 +18,29 @@
 // idempotente y explicito, y la web lo llama una vez cuando las lecturas vuelven vacias. Los
 // codigos y nombres son los mismos (`catalogs.defaults.ts`), asi que las filas sembradas son
 // intercambiables con las que ya creo `seed-demo.sql`.
-import { Inject, Injectable } from "@nestjs/common";
+//
+// C7 — ESCRITURAS. El port tenia solo lecturas; faltaban el alta y la modificacion de metodos y
+// categorias (`createPaymentMethod`, `updatePaymentMethod`, `createCategory`, `updateCategory` del
+// origen, `lib/caja/caja.ts:238-320`). Tres decisiones se portan tal cual:
+//
+//   1. NO hay borrado: desactivar es `isActive: false`, y la fila sigue existiendo porque los
+//      recibos la referencian desde `payment.method_id` / `payment.category_id`.
+//   2. El `code` de un metodo es INMUTABLE despues del alta y el de una categoria se DERIVA del
+//      nombre en un solo lugar (`categoryCodeFromName`, `catalogs.defaults.ts`), porque la columna
+//      es `not null` y `unique (owner_id, code)`.
+//   3. El duplicado de codigo responde 409 con un mensaje que NOMBRA el codigo
+//      (`payments.errors.ts`, `toCatalogHttpException`), no el texto crudo del `23505`.
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { DATABASE, type Database } from "../db/db.provider";
 import { cashAccount, cashReceiptCategory, entidad, paymentMethod } from "../db/schema";
 import { withOwner } from "../db/with-owner";
-import { DEFAULT_CATEGORIES, DEFAULT_PAYMENT_METHODS } from "./catalogs.defaults.ts";
+import {
+	CATEGORY_EMPTY_CODE_MESSAGE,
+	categoryCodeFromName,
+	DEFAULT_CATEGORIES,
+	DEFAULT_PAYMENT_METHODS,
+} from "./catalogs.defaults.ts";
 import type {
 	CashAccountCatalogItem,
 	CashReceiptCategoryCatalogItem,
@@ -30,8 +48,21 @@ import type {
 	EntityCatalogItem,
 	PaymentMethodCatalogItem,
 } from "./catalogs.types.ts";
-import type { EntitiesQuery, PaymentMethodsQuery, ReceiptCategoriesQuery } from "./catalogs.query.ts";
-import { toHttpException } from "./payments.errors.ts";
+import type {
+	EntitiesQuery,
+	PaymentMethodBody,
+	PaymentMethodPatch,
+	PaymentMethodsQuery,
+	ReceiptCategoriesQuery,
+	ReceiptCategoryBody,
+	ReceiptCategoryPatch,
+} from "./catalogs.query.ts";
+import {
+	paymentMethodNotFound,
+	receiptCategoryNotFound,
+	toCatalogHttpException,
+	toHttpException,
+} from "./payments.errors.ts";
 
 @Injectable()
 export class CatalogsService {
@@ -136,7 +167,10 @@ export class CatalogsService {
 		try {
 			return await withOwner(this.db, ownerId, async (tx) => {
 				const conditions = [
-					eq(cashReceiptCategory.isActive, true),
+					// `onlyActive` viene con default `true`: la lectura por defecto sigue siendo la de
+					// siempre (solo activas). La tarjeta de configuracion pide `false` para poder
+					// reactivar una categoria desactivada.
+					...(query.onlyActive ? [eq(cashReceiptCategory.isActive, true)] : []),
 					...(query.direction ? [eq(cashReceiptCategory.direction, query.direction)] : []),
 				];
 
@@ -224,4 +258,206 @@ export class CatalogsService {
 		}
 	}
 
+	/**
+	 * `POST /payment-methods` — alta (`createPaymentMethod` del origen).
+	 *
+	 * El `code` llega ya normalizado por el schema compartido (trim, mayusculas, espacios a guion
+	 * bajo, maximo 40). `owner_id` no viaja: la columna tiene `default auth.uid()` y dentro de
+	 * `withOwner` ese GUC es el dueno de la sesion (S6). Un codigo repetido lo rechaza
+	 * `unique (owner_id, code)` y `toCatalogHttpException` lo traduce a un 409 que nombra el codigo.
+	 */
+	async createPaymentMethod(
+		ownerId: string,
+		values: PaymentMethodBody,
+	): Promise<PaymentMethodCatalogItem> {
+		try {
+			return await withOwner(this.db, ownerId, async (tx) => {
+				const rows = await tx
+					.insert(paymentMethod)
+					.values({ code: values.code, name: values.name, isActive: values.isActive })
+					.returning(METHOD_COLUMNS);
+				const created = rows[0];
+
+				if (!created) {
+					throw new Error("El alta del metodo de pago no devolvio la fila creada.");
+				}
+
+				return created;
+			});
+		} catch (error) {
+			throw toCatalogHttpException(error, "payment_method", values.code);
+		}
+	}
+
+	/**
+	 * `PATCH /payment-methods/:id` — modificacion (`updatePaymentMethod` del origen).
+	 *
+	 * Parcial y con el `code` INMUTABLE: solo viajan `name` e `isActive`, y solo los que el cliente
+	 * mando (el origen aplicaba el mismo `if (values.x !== undefined)`). `updated_at` no existe en
+	 * `payment_method`: la tabla solo tiene `created_at`.
+	 *
+	 * Un id inexistente o de otro dueno no matchea ninguna fila (la RLS ya la hace invisible) y
+	 * responde 404, igual que la baja logica de una cuenta en C2.
+	 */
+	async updatePaymentMethod(
+		ownerId: string,
+		id: string,
+		values: PaymentMethodPatch,
+	): Promise<PaymentMethodCatalogItem> {
+		try {
+			return await withOwner(this.db, ownerId, async (tx) => {
+				const fields = partialMethodFields(values);
+				const where = and(eq(paymentMethod.id, id), eq(paymentMethod.ownerId, ownerId));
+
+				// Un PATCH vacio (`{}`) es un no-op valido: se lee la fila para poder responder 200 con
+				// ella, o 404 si no es del dueno. No se llama a `.set({})`: un UPDATE sin columnas no es
+				// SQL valido.
+				const rows =
+					Object.keys(fields).length === 0
+						? await tx.select(METHOD_COLUMNS).from(paymentMethod).where(where).limit(1)
+						: await tx
+								.update(paymentMethod)
+								.set(fields)
+								.where(where)
+								.returning(METHOD_COLUMNS);
+				const updated = rows[0];
+
+				if (!updated) {
+					throw paymentMethodNotFound();
+				}
+
+				return updated;
+			});
+		} catch (error) {
+			throw toCatalogHttpException(error, "payment_method", null);
+		}
+	}
+
+	/**
+	 * `POST /receipt-categories` — alta (`createCategory` del origen, `lib/caja/caja.ts:291-315`).
+	 *
+	 * El `code` NO viaja en el body: se DERIVA del nombre con `categoryCodeFromName`, y un nombre
+	 * sin letras ni numeros se rechaza con el mensaje textual del origen ANTES de tocar la base
+	 * (no hay slug que insertar). Es la unica regla de esta escritura que vive en Node, y vive aca
+	 * porque es una derivacion, no una validacion de negocio: la columna es `not null`.
+	 */
+	async createReceiptCategory(
+		ownerId: string,
+		values: ReceiptCategoryBody,
+	): Promise<CashReceiptCategoryCatalogItem> {
+		const code = categoryCodeFromName(values.name);
+
+		// Textual del origen (`lib/caja/caja.ts:294-298`): el usuario no ve el codigo, pero es el
+		// identificador estable con el que el wizard resuelve categorias renombradas (SPEC 37).
+		if (!code) {
+			throw new BadRequestException(CATEGORY_EMPTY_CODE_MESSAGE);
+		}
+
+		try {
+			return await withOwner(this.db, ownerId, async (tx) => {
+				const rows = await tx
+					.insert(cashReceiptCategory)
+					.values({
+						direction: values.direction,
+						name: values.name,
+						code,
+						isActive: values.isActive,
+					})
+					.returning(CATEGORY_COLUMNS);
+				const created = rows[0];
+
+				if (!created) {
+					throw new Error("El alta de la categoria no devolvio la fila creada.");
+				}
+
+				return created;
+			});
+		} catch (error) {
+			throw toCatalogHttpException(error, "cash_receipt_category", code);
+		}
+	}
+
+	/**
+	 * `PATCH /receipt-categories/:id` — modificacion (`updateCategory` del origen).
+	 *
+	 * Renombrar NO re-deriva el `code`: el origen lo creo justamente para que renombrar una
+	 * categoria no rompa el wizard que la resuelve por codigo (SPEC 37). La `direction` tampoco
+	 * cambia: no esta en el body.
+	 */
+	async updateReceiptCategory(
+		ownerId: string,
+		id: string,
+		values: ReceiptCategoryPatch,
+	): Promise<CashReceiptCategoryCatalogItem> {
+		try {
+			return await withOwner(this.db, ownerId, async (tx) => {
+				const fields = partialCategoryFields(values);
+				const where = and(
+					eq(cashReceiptCategory.id, id),
+					eq(cashReceiptCategory.ownerId, ownerId),
+				);
+
+				// Mismo criterio que en el metodo de pago: un PATCH vacio lee y devuelve la fila.
+				const rows =
+					Object.keys(fields).length === 0
+						? await tx
+								.select(CATEGORY_COLUMNS)
+								.from(cashReceiptCategory)
+								.where(where)
+								.limit(1)
+						: await tx
+								.update(cashReceiptCategory)
+								.set(fields)
+								.where(where)
+								.returning(CATEGORY_COLUMNS);
+				const updated = rows[0];
+
+				if (!updated) {
+					throw receiptCategoryNotFound();
+				}
+
+				return updated;
+			});
+		} catch (error) {
+			throw toCatalogHttpException(error, "cash_receipt_category", null);
+		}
+	}
+}
+
+/** Las columnas de `PaymentMethodCatalogItem`, una sola vez para las dos escrituras. */
+const METHOD_COLUMNS = {
+	id: paymentMethod.id,
+	code: paymentMethod.code,
+	name: paymentMethod.name,
+	isActive: paymentMethod.isActive,
+};
+
+/** Las columnas de `CashReceiptCategoryCatalogItem`: las MISMAS cinco de la lectura. */
+const CATEGORY_COLUMNS = {
+	id: cashReceiptCategory.id,
+	direction: cashReceiptCategory.direction,
+	name: cashReceiptCategory.name,
+	code: cashReceiptCategory.code,
+	isActive: cashReceiptCategory.isActive,
+};
+
+/**
+ * Los campos de un PATCH de metodo de pago que el cliente efectivamente mando.
+ *
+ * `undefined` y no `null`: en Drizzle una clave ausente en `.set()` no se escribe. Es el mismo
+ * `if (values.name !== undefined)` del origen, que dejaba intacto lo que no venia en el patch.
+ */
+function partialMethodFields(values: PaymentMethodPatch) {
+	return {
+		...(values.name === undefined ? {} : { name: values.name }),
+		...(values.isActive === undefined ? {} : { isActive: values.isActive }),
+	};
+}
+
+/** Idem para la categoria. */
+function partialCategoryFields(values: ReceiptCategoryPatch) {
+	return {
+		...(values.name === undefined ? {} : { name: values.name }),
+		...(values.isActive === undefined ? {} : { isActive: values.isActive }),
+	};
 }

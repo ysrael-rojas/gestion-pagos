@@ -12,10 +12,12 @@
 // Cada vertical que se porta mueve su entrada de `PENDING_GROUPS` a `LINKS`, sin renombrarla ni
 // reordenar el resto: "Maestro" ya es una ruta real (`/clientes/listado`, T5c) y por eso se
 // enlaza como los pagos. "Caja y bancos" (C5 del vertical de cajas-bancos) hace lo mismo con SUS
-// pantallas portadas: el origen era un desplegable de seis entradas y aca quedan cuatro enlaces
-// directos, con las etiquetas del origen (`Resumen` es la raiz del vertical, que en este repo es el
-// listado de cuentas). "Extractos" se enlaza desde C6. Conciliacion y configuracion NO se enlazan
-// todavia: son C7 y su API no esta expuesta.
+// pantallas portadas: el origen era un desplegable de seis entradas y aca quedan seis enlaces
+// directos, con las etiquetas del origen. "Resumen" es la raiz del vertical, que desde C7 es el
+// dashboard de tesoreria (antes era el listado de cuentas, porque el dashboard no existia).
+// "Extractos" se enlazo en C6 y "Conciliacion" y "Configuracion" en C7, cuando su API quedo
+// expuesta (bank-reconciliations, cash-flow, payment-methods, receipt-categories y settings).
+
 import {
   Activity,
   ArrowDownCircle,
@@ -27,6 +29,7 @@ import {
   Landmark,
   LayoutDashboard,
   Receipt,
+  Scale,
   Settings,
   ShoppingCart,
   Wallet,
@@ -75,13 +78,14 @@ const LINKS: NavLink[] = [
   // Vertical de clientes (T5c): en el origen era el grupo "Maestro"; aca es un enlace directo,
   // con el mismo trato que las dos entradas de pagos.
   { label: "Maestro", href: "/clientes/listado", icon: Database },
-  // Vertical de cajas-bancos (C5): las pantallas que ya tienen API, con las etiquetas del origen.
-  // La primera es prefijo de las otras, asi que solo se resalta en su ruta exacta. "Extractos" se
-  // sumo en C6, cuando el vertical expuso los movimientos y las transferencias de la cuenta.
+  // Vertical de cajas-bancos (C5, C6 y C7): las pantallas que ya tienen API, con las etiquetas del
+  // origen. La primera es prefijo de las otras, asi que solo se resalta en su ruta exacta.
   { label: "Caja y bancos", href: "/cajas-bancos", icon: Landmark, exact: true },
   { label: "Detalle de Cuentas", href: "/cajas-bancos/cuentas", icon: Wallet },
   { label: "Cuadres de Caja", href: "/cajas-bancos/cuadres", icon: Calculator },
   { label: "Extractos", href: "/cajas-bancos/extractos", icon: FileText },
+  { label: "Conciliación", href: "/cajas-bancos/conciliacion", icon: Scale },
+  { label: "Configuración de caja", href: "/cajas-bancos/configuracion", icon: Settings },
   { label: "Estado del API", href: "/health", icon: Activity },
 ];
 

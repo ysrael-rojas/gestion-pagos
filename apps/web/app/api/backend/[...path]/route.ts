@@ -36,6 +36,11 @@ const ALLOWED_PREFIXES = new Set([
   // RPC del API por POST; sin estos dos prefijos el navegador recibe 404 del puente.
   "cash-transfers",
   "petty-cash",
+  // C7: conciliacion bancaria (el acta del periodo, por GET y POST) y el agregado del mes del
+  // dashboard. Los dos son rutas nuevas del vertical; sin el prefijo, el navegador recibe 404 del
+  // puente aunque la ruta exista en el API.
+  "bank-reconciliations",
+  "cash-flow",
   "payment-methods",
   "receipt-categories",
   "catalogs",

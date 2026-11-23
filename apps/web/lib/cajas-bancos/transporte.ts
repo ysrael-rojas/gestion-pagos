@@ -9,7 +9,8 @@
 // exportaba. Copiarlo dos veces es como empiezan a divergir las dos cosas que no pueden divergir
 // (manejo de errores y credenciales), y C7 iba a necesitar una tercera, asi que el cliente expone
 // `request` y aca solo se le pone el nombre de la superficie del vertical: cambiar de transporte es
-// este archivo, no los cinco modulos que lo importan.
+// este archivo, no los seis modulos que lo importan (`transferencias.ts`, `caja-chica.ts`,
+// `movimientos.ts`, `cargos.ts`, `conciliacion.ts` y las pantallas que los consumen).
 //
 // El navegador pega en `/api/backend/cash-transfers` y `/api/backend/petty-cash`; los dos prefijos
 // estan en la lista blanca de `app/api/backend/[...path]/route.ts`. Sin esa lista blanca el API

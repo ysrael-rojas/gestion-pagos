@@ -16,16 +16,19 @@
 //
 // ## Tipos
 //
-// Las interfaces de abajo reflejan `apps/api/src/payments/payments.types.ts` y
-// `apps/api/src/payments/catalogs.types.ts`, que son el contrato de salida del API. Se declaran
+// Las interfaces de abajo reflejan `apps/api/src/payments/payments.types.ts`,
+// `apps/api/src/payments/catalogs.types.ts` y, desde C7 del vertical de cajas-bancos,
+// `apps/api/src/cash/cash-flow.types.ts`, que son el contrato de salida del API. Se declaran
 // aca (en vez de importarse de apps/api) porque `apps/web` no depende de `@gestion/api`: el
 // paquete del backend no es publicable y su build es un bundle de esbuild. Cambiar un campo alla
 // es cambiar este archivo, y el unico lugar donde eso se nota rapido son los tests de la UI.
 import type {
   CashCloseFormValues,
   CashCountFormValues,
+  CashReceiptCategoryFormValues,
   ClientFormValues,
   PaymentFormValues,
+  PaymentMethodFormValues,
 } from "@gestion/shared";
 
 const DEFAULT_API_BASE_URL = "http://localhost:3001";
@@ -417,6 +420,28 @@ export interface SettingsUpdate {
 /** `POST /settings/ensure`: cuantas filas falto crear (`0` = ya estaba sembrado). */
 export interface SettingsSeedResult {
   created: number;
+}
+
+/**
+ * `GET /cash-flow/monthly?from=&to=`: ingresos, egresos y neto del periodo.
+ *
+ * Espeja `MonthlyCashFlow` de `apps/api/src/cash/cash-flow.types.ts`, que a su vez es el
+ * `CashFlowTotals` de `lib/caja/dashboard.ts` del origen (tres claves, estos nombres: el dashboard
+ * es el consumidor). `net` es ingresos − egresos y PUEDE SER NEGATIVO; no es un saldo.
+ *
+ * Los tres numeros los agrega PostgreSQL con el filtro del origen (`status <> 'ANULADO'` y fecha
+ * INCLUSIVE en los dos bordes). La web NO suma recibos para producirlos (S2).
+ */
+export interface MonthlyCashFlow {
+  income: number;
+  expense: number;
+  net: number;
+}
+
+/** Body de `PATCH` de los dos catalogos: nombre y estado, los dos opcionales. */
+export interface CatalogPatch {
+  name?: string;
+  isActive?: boolean;
 }
 
 /** Asignacion de entrada (`AllocationInput` del origen). */
@@ -853,13 +878,97 @@ export function listPaymentMethods(onlyActive = true): Promise<PaymentMethodCata
   });
 }
 
-/** Categorias de recibo, opcionalmente por direccion (`listCategories`). */
+/**
+ * Categorias de recibo, opcionalmente por direccion (`listCategories`).
+ *
+ * `onlyActive` viaja por default en `true`, que es el contrato del formulario de pagos: ahi una
+ * categoria desactivada no debe ofrecerse. La tarjeta de configuracion manda `false` porque
+ * necesita ver tambien las desactivadas — de lo contrario la fila desaparece del listado y no hay
+ * forma de volver a activarla desde la UI.
+ */
 export function listReceiptCategories(
   direction?: PaymentDirection,
+  onlyActive = true,
 ): Promise<CashReceiptCategoryCatalogItem[]> {
   return request<CashReceiptCategoryCatalogItem[]>("/receipt-categories", {
-    query: { direction },
+    query: { direction, onlyActive: String(onlyActive) },
   });
+}
+
+/**
+ * Alta de metodo de pago (`createPaymentMethod` del origen, C7).
+ *
+ * El body es el schema compartido del formulario (`paymentMethodSchema`), asi que el `code` viaja ya
+ * normalizado (trim, mayusculas, espacios a guion bajo) y un codigo repetido responde 409 con un
+ * mensaje que lo nombra: el llamador muestra ese texto tal cual.
+ */
+export function createPaymentMethod(
+  values: PaymentMethodFormValues,
+): Promise<PaymentMethodCatalogItem> {
+  return request<PaymentMethodCatalogItem>("/payment-methods", {
+    method: "POST",
+    body: values,
+  });
+}
+
+/**
+ * Renombrar y/o activar o desactivar un metodo (`updatePaymentMethod`, C7).
+ *
+ * PATCH PARCIAL y sin `code`: el codigo es inmutable despues del alta (no esta en el schema del
+ * body, asi que el API lo descarta si se manda). No hay `DELETE`: "borrar" un catalogo es
+ * desactivarlo, porque los recibos lo referencian. Devuelve la fila ya guardada.
+ */
+export function updatePaymentMethod(
+  id: string,
+  values: CatalogPatch,
+): Promise<PaymentMethodCatalogItem> {
+  return request<PaymentMethodCatalogItem>(`/payment-methods/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: values,
+  });
+}
+
+/**
+ * Alta de categoria de recibo (`createCategory` del origen, C7).
+ *
+ * SIN `code`: el codigo estable lo DERIVA el API del nombre (`categoryCodeFromName`) porque la
+ * columna es `not null` y unica por dueno, y duplicar la derivacion en la web podria producir dos
+ * codigos distintos para el mismo nombre. El schema compartido del formulario tampoco lo tiene.
+ */
+export function createReceiptCategory(
+  values: CashReceiptCategoryFormValues,
+): Promise<CashReceiptCategoryCatalogItem> {
+  return request<CashReceiptCategoryCatalogItem>("/receipt-categories", {
+    method: "POST",
+    body: values,
+  });
+}
+
+/**
+ * Renombrar y/o activar o desactivar una categoria (`updateCategory`, C7).
+ *
+ * PATCH parcial: renombrar NO re-deriva el `code` (SPEC 37: el codigo sobrevive al renombre) y la
+ * `direction` no se toca. Mismo criterio que los metodos: desactivar es el "borrado".
+ */
+export function updateReceiptCategory(
+  id: string,
+  values: CatalogPatch,
+): Promise<CashReceiptCategoryCatalogItem> {
+  return request<CashReceiptCategoryCatalogItem>(`/receipt-categories/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: values,
+  });
+}
+
+/**
+ * Ingresos, egresos y neto de un periodo (`getMonthlyCashFlow(from, to)` del origen).
+ *
+ * Las dos fechas son obligatorias y el rango es INCLUSIVE en las dos puntas, porque el rango lo
+ * elige la pantalla (mes actual, mes anterior). El calculo es SQL (S2): esta funcion no suma nada,
+ * solo transporta el agregado que ya excluyo los recibos anulados.
+ */
+export function getMonthlyCashFlow(from: string, to: string): Promise<MonthlyCashFlow> {
+  return request<MonthlyCashFlow>("/cash-flow/monthly", { query: { from, to } });
 }
 
 /**

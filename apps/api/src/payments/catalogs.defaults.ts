@@ -45,3 +45,35 @@ export const DEFAULT_CATEGORIES: Record<PaymentDirection, SeedCategory[]> = {
 		{ code: "OTRO_EGRESO", name: "Otro egreso" },
 	],
 };
+
+/** El nombre de la categoria no tiene ni una letra ni un digito: no hay slug posible. */
+export const CATEGORY_EMPTY_CODE_MESSAGE = "El nombre de la categoría debe contener letras o números.";
+
+/**
+ * Codigo estable de una categoria creada por el usuario, portado de `categoryCodeFromName`
+ * (`lib/caja/defaults.ts:56-65` del proyecto de origen) con las MISMAS cuatro operaciones y en el
+ * mismo orden:
+ *
+ *     "Comisión mensual" -> "COMISION_MENSUAL"
+ *
+ *   1. `normalize("NFD")` + quitar marcas combinantes: "Comisión" -> "Comision" (sin acentos).
+ *   2. Mayusculas.
+ *   3. Todo lo que no sea A-Z o 0-9, en bloques, a un guion bajo.
+ *   4. Guiones bajos de los extremos fuera.
+ *
+ * Devuelve `""` si el nombre no tiene letras ni numeros (el llamador lo rechaza con
+ * `CATEGORY_EMPTY_CODE_MESSAGE`).
+ *
+ * Vive en el API y no en el cliente a proposito: el `code` es `not null` y `unique (owner_id,
+ * code)`, asi que la derivacion tiene que ocurrir en UN solo lugar. Si la web lo derivara tambien,
+ * dos versiones de la regla podrian producir codigos distintos para el mismo nombre y el alta
+ * chocaria contra el indice unico sin que el usuario entienda por que.
+ */
+export function categoryCodeFromName(name: string): string {
+	return name
+		.normalize("NFD")
+		.replace(/\p{M}/gu, "")
+		.toUpperCase()
+		.replace(/[^A-Z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+}

@@ -3,9 +3,11 @@
 // Listado, alta y baja de cuentas de caja y banco (C5 del vertical de cajas-bancos).
 //
 // Port de `components/cajas-bancos/cajas-bancos-listado-view.tsx` del origen (195 lineas). Es la
-// pantalla que el origen servia dentro de "Configuracion > Cuentas"
-// (`configuracion-view.tsx:45`); aca es una pantalla propia en `/cajas-bancos`, porque la
-// configuracion del vertical es C7 y esta pieza ya tiene su API.
+// pantalla que el origen servia dentro de "Configuracion > Cuentas" (`configuracion-view.tsx:45`).
+// C5 la puso tambien en la raiz del vertical (`/cajas-bancos`) porque la configuracion era C7 y no
+// existia; desde C7 la raiz es el dashboard (`dashboard-view.tsx`) y esta pantalla volvio a su
+// lugar original: la solapa "Cuentas" de `/cajas-bancos/configuracion`, mas el acceso directo de
+// `/cajas-bancos/cuentas`.
 //
 // Todo lo que toca datos pasa por `useCajasBancos()`: el provider espera la escritura del API y
 // despues refresca, sin actualizacion optimista, asi que la tabla nunca muestra una fila que el

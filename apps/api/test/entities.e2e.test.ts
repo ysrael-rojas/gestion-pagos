@@ -500,6 +500,39 @@ test("el documento es unico POR DUENO: otro dueno puede registrar el mismo RUC",
 	}
 });
 
+test("el tipo de documento es parte de la clave: el mismo numero con otro tipo es otra fila", async () => {
+	// Agregado por la verificacion independiente: ningun test usaba el mismo numero con dos tipos
+	// para un mismo dueno, asi que sacar `document_type` del indice no rompia nada. Un numero de 11
+	// digitos es valido como RUC y tambien como carnet de extranjeria (9 a 12 alfanumericos).
+	const number = `20${randomUUID().replace(/[^0-9]/g, "").padEnd(9, "4").slice(0, 9)}`;
+
+	const asRuc = await call("POST", "/entities", {
+		cookie: owner.cookie,
+		body: clientBody({ documentType: "RUC", documentNumber: number, name: "Mismo numero RUC" }),
+	});
+
+	assert.equal(asRuc.status, 201);
+
+	const asCarnet = await call("POST", "/entities", {
+		cookie: owner.cookie,
+		body: clientBody({
+			documentType: "CARNET_EXTRANJERIA",
+			documentNumber: number,
+			name: "Mismo numero carnet",
+		}),
+	});
+
+	assert.equal(asCarnet.status, 201, "otro tipo es otra fila del mismo dueno");
+
+	const repeated = await call("POST", "/entities", {
+		cookie: owner.cookie,
+		body: clientBody({ documentType: "RUC", documentNumber: number, name: "RUC repetido" }),
+	});
+
+	assert.equal(repeated.status, 409);
+	assert.equal(repeated.body?.message, DUPLICATE_MESSAGE);
+});
+
 test("el contrato compartido valida los formatos de documento del formulario", async () => {
 	// Portado de `tests/unit/lib/schemas/client.test.ts` del origen, pero por el borde HTTP: el
 	// schema vive en `@gestion/shared` y ese paquete no tiene runner propio (su barrel solo

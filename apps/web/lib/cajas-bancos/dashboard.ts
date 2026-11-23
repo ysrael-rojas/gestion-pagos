@@ -1,20 +1,33 @@
-// Resumen de posiciones del listado de cuentas (C5 del vertical de cajas-bancos).
+// Resumen de posiciones y flujo del mes del dashboard de tesoreria (C5 y C7 del vertical de
+// cajas-bancos).
 //
-// Port de la MITAD de `lib/caja/dashboard.ts` del origen (100 lineas): `summarizePositions` y
-// `toPen`, que son las dos funciones que el listado de cuentas consume para mostrar el total
-// consolidado, el saldo en cajas, el saldo en bancos y el "% del total" de cada fila.
+// Port COMPLETO de `lib/caja/dashboard.ts` del origen (100 lineas): `summarizePositions` y `toPen`
+// (las dos funciones que el listado de cuentas consume para mostrar el total consolidado, el saldo
+// en cajas, el saldo en bancos y el "% del total" de cada fila) mas `FlowLike`, `CashFlowTotals` y
+// `summarizeCashFlow` (el resultado del mes del dashboard). C5 porto la mitad de posiciones y dejo
+// estas tres anotadas como "C7"; el dashboard llego con C7 y las trae con su pantalla.
 //
-// QUE NO SE PORTA Y POR QUE: `summarizeCashFlow` y `FlowLike` son el flujo del mes del dashboard
-// (`/cajas-bancos`, C7) y suman importes de pagos, cosa que hoy solo necesita esa pantalla.
-// Portarlos sin consumidor agregaria una segunda aritmetica de dinero a la web antes de tiempo; C7
-// los trae con su pantalla. `getMonthRange` (el rango del mes que usa ese flujo) SI esta portado,
-// en `lib/cajas-bancos/periodo.ts`: es aritmetica de calendario, no de dinero, y el extracto de C6
-// lo necesita para el rango inicial. C7 lo importa de ahi en vez de reescribirlo.
+// `getMonthRange` NO esta aca y no se duplica: vive en `lib/cajas-bancos/periodo.ts` desde C5,
+// porque es aritmetica de calendario (no de dinero) y tiene dos consumidores (el rango del extracto
+// de C6 y el del flujo del mes de C7). El origen la tenia en este archivo.
 //
 // S2 — El SALDO no se calcula aca: entra ya calculado por la base en `balance`
 // (`GET /cash-positions`). Lo unico que hace este archivo es sumar esos saldos para mostrarlos
 // juntos, que es una decision de presentacion, no de dominio.
+//
+// S2 — EL FLUJO DEL MES TAMPOCO SE SUMA ACA EN PRODUCCION: el dashboard usa
+// `getMonthlyCashFlow` (`GET /cash-flow/monthly`), donde los tres numeros los agrega PostgreSQL con
+// el filtro `status <> 'ANULADO'`. `summarizeCashFlow` es el helper de DISPLAY del origen (suma
+// filas que YA vienen sin anulados y redondea a dos decimales) y se conserva por contrato del
+// slice, no porque la pantalla lo llame: reintroducir la suma en el cliente seria una segunda
+// definicion de "flujo del mes" al lado del SQL, que es justo lo que S2 prohibe.
 import { round2 } from "@gestion/shared/lib/utils.ts";
+
+/** Fila minima de un movimiento de caja para agregar el resultado del mes. */
+export interface FlowLike {
+  direction: "INGRESO" | "EGRESO";
+  amount: number;
+}
 
 /** Fila minima de una posicion para agregar el disponible total. */
 export interface PositionLike {
@@ -22,11 +35,44 @@ export interface PositionLike {
   balance: number;
 }
 
+/** Los tres numeros del resultado del mes. */
+export interface CashFlowTotals {
+  income: number;
+  expense: number;
+  /** Ingresos − egresos. Puede ser negativo. */
+  net: number;
+}
+
 export interface PositionsSummary {
   total: number;
   cashTotal: number;
   bankTotal: number;
   count: number;
+}
+
+/**
+ * Suma ingresos y egresos del periodo; el neto es ingresos − egresos.
+ *
+ * Una direccion que no sea INGRESO ni EGRESO no suma a ningun lado (y no es un error: se ignora,
+ * como en el origen). El filtro de recibos ANULADOS NO esta aca: lo aplica el SQL de
+ * `GET /cash-flow/monthly`, antes de que cualquier fila llegue al cliente (S2).
+ */
+export function summarizeCashFlow(rows: FlowLike[]): CashFlowTotals {
+  let income = 0;
+  let expense = 0;
+
+  for (const row of rows) {
+    if (row.direction === "INGRESO") {
+      income += row.amount;
+    } else if (row.direction === "EGRESO") {
+      expense += row.amount;
+    }
+  }
+
+  income = round2(income);
+  expense = round2(expense);
+
+  return { income, expense, net: round2(income - expense) };
 }
 
 /**

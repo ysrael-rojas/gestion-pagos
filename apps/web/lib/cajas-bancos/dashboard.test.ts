@@ -1,13 +1,67 @@
-// Resumen de posiciones del listado de cuentas (C5 del vertical de cajas-bancos).
+// Resumen de posiciones y flujo del mes del dashboard (C5 y C7 del vertical de cajas-bancos).
 //
-// Port de `tests/unit/lib/caja/dashboard.test.ts` del origen (vitest) a `node:test`, reducido a
-// la mitad que este slice consume: `summarizePositions` (los cuatro totales del listado de
-// cuentas) y `toPen` (la consolidacion a soles, SPEC 52). El flujo del mes
-// (`getMonthRange`/`summarizeCashFlow`) es del dashboard de C7 y no se prueba aca.
+// Port de `tests/unit/lib/caja/dashboard.test.ts` del origen (vitest) a `node:test`. En C5 se
+// porto la mitad de posiciones (`summarizePositions`, los cuatro totales del listado de cuentas, y
+// `toPen`, la consolidacion a soles de SPEC 52); C7 suma la mitad del flujo
+// (`summarizeCashFlow`: ingresos, egresos y neto).
+//
+// DONDE NO ESTA `getMonthRange`: vive en `periodo.ts` desde C5 (es aritmetica de calendario y
+// tiene dos consumidores) y se prueba en `periodo.test.ts`. No se duplica aca.
+//
+// POR QUE NO HAY UN CASO DE RECIBO ANULADO ACA: `FlowLike` tiene direccion e importe y nada mas, y
+// el filtro `status <> 'ANULADO'` lo aplica el SQL de `GET /cash-flow/monthly` (S2). El caso del
+// anulado esta donde vive la regla, en el test del cliente (`lib/cajas-bancos/flujo.test.ts`): un
+// recibo anulado nunca llega a esta funcion, y agregarle un `status` para volver a filtrarlo aca
+// seria una segunda definicion de "anulado" en el mismo repo.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { summarizePositions, toPen } from "./dashboard.ts";
+import { summarizeCashFlow, summarizePositions, toPen } from "./dashboard.ts";
+
+describe("summarizeCashFlow", () => {
+  it("suma ingresos y egresos y calcula el neto", () => {
+    const totals = summarizeCashFlow([
+      { direction: "INGRESO", amount: 1000 },
+      { direction: "INGRESO", amount: 250.5 },
+      { direction: "EGRESO", amount: 400 },
+    ]);
+
+    assert.deepEqual(totals, { income: 1250.5, expense: 400, net: 850.5 });
+  });
+
+  it("devuelve ceros cuando no hay movimientos", () => {
+    assert.deepEqual(summarizeCashFlow([]), { income: 0, expense: 0, net: 0 });
+  });
+
+  it("permite un neto negativo", () => {
+    const totals = summarizeCashFlow([
+      { direction: "INGRESO", amount: 100 },
+      { direction: "EGRESO", amount: 350 },
+    ]);
+
+    assert.equal(totals.net, -250);
+  });
+
+  it("redondea a dos decimales para evitar ruido de punto flotante", () => {
+    const totals = summarizeCashFlow([
+      { direction: "INGRESO", amount: 0.1 },
+      { direction: "INGRESO", amount: 0.2 },
+    ]);
+
+    assert.equal(totals.income, 0.3);
+    assert.equal(totals.net, 0.3);
+  });
+
+  it("no cuenta filas sin direccion de caja", () => {
+    const totals = summarizeCashFlow([
+      { direction: "INGRESO", amount: 500 },
+      // Una fila que no es ingreso ni egreso no suma a ninguno de los dos lados.
+      { direction: null as unknown as "INGRESO", amount: 999 },
+    ]);
+
+    assert.deepEqual(totals, { income: 500, expense: 0, net: 500 });
+  });
+});
 
 describe("summarizePositions", () => {
   it("totaliza y separa caja de banco", () => {

@@ -74,3 +74,18 @@ export function buildStatementRows(
 
   return [...paymentRows, ...transferRows].sort((a, b) => a.date.localeCompare(b.date));
 }
+
+/**
+ * Ids de las filas que se pueden marcar como verificadas (`EN_REVISION` -> `PROCESADO`).
+ *
+ * La accion de la tabla de movimientos es de C7 (conciliacion), pero la CONDICION es de la
+ * composicion de filas y por eso vive aca, con su test: solo un recibo en revision se puede
+ * marcar. Una transferencia no es un recibo (`kind: "TRANSFER"` y `status: null`) y un recibo ya
+ * procesado o anulado no se vuelve a procesar, asi que la barra de acciones y la casilla de cada
+ * fila solo se dibujan para estos ids. Marcar de mas seria un boton que miente sobre lo que hace.
+ */
+export function markableReceiptIds(rows: StatementRow[]): string[] {
+  return rows
+    .filter((row) => row.kind === "PAYMENT" && row.status === "EN_REVISION")
+    .map((row) => row.id);
+}

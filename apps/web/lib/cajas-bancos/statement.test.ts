@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { Payment } from "@/lib/api/client";
-import { buildStatementRows } from "./statement.ts";
+import { buildStatementRows, markableReceiptIds } from "./statement.ts";
 import type { CashTransfer } from "./transferencias.ts";
 
 const ACCOUNT_ID = "550e8400-e29b-41d4-a716-446655440001";
@@ -133,5 +133,35 @@ describe("buildStatementRows", () => {
 
   it("devuelve una lista vacia sin recibos ni transferencias", () => {
     assert.deepEqual(buildStatementRows([], [], ACCOUNT_ID), []);
+  });
+});
+
+// C7: las dos acciones de la tabla de movimientos ("Marcar verificado" y "Registrar cargo
+// bancario") solo se pueden ofrecer sobre recibos EN_REVISION, asi que la condicion que decide
+// que filas se pueden marcar es una regla de presentacion con plata de por medio: marcar un
+// recibo ya procesado o una transferencia seria un boton que miente.
+describe("markableReceiptIds", () => {
+  it("solo ofrece los recibos en revision, nunca las transferencias", () => {
+    const rows = buildStatementRows(
+      [
+        payment({ id: "en-revision", status: "EN_REVISION" }),
+        payment({ id: "procesado", status: "PROCESADO" }),
+        payment({ id: "anulado", status: "ANULADO" }),
+      ],
+      [transfer({ id: "transferencia" })],
+      ACCOUNT_ID,
+    );
+
+    assert.deepEqual(markableReceiptIds(rows), ["en-revision"]);
+  });
+
+  it("devuelve una lista vacia cuando nada esta en revision", () => {
+    const rows = buildStatementRows(
+      [payment({ id: "procesado", status: "PROCESADO" })],
+      [],
+      ACCOUNT_ID,
+    );
+
+    assert.deepEqual(markableReceiptIds(rows), []);
   });
 });

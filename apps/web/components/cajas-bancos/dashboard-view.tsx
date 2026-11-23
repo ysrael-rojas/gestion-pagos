@@ -1,0 +1,358 @@
+"use client";
+
+// Dashboard de tesoreria: disponible consolidado, resultado del mes, cartera breve, proyeccion y
+// desglose por cuenta (C7 del vertical de cajas-bancos, SPEC 52).
+//
+// Port de `components/cajas-bancos/dashboard-view.tsx` del origen (377 lineas). Es la pantalla raiz
+// del vertical (`/cajas-bancos`), que en C5 apuntaba al listado de cuentas con una nota explicando
+// que el dashboard era C7. Ahora es el dashboard, como en el origen; el listado sigue en
+// "Configuracion > Cuentas" y en `/cajas-bancos/cuentas`.
+//
+// DE DONDE SALE CADA NUMERO (y por que ninguno se calcula aca):
+//
+//   disponible total / en cajas / en bancos  `GET /cash-positions` (saldo en SQL, S2) y
+//                                            `summarizePositions` sobre esos saldos, consolidando
+//                                            cada cuenta a soles con el TC de los ajustes.
+//   resultado del mes                        `GET /cash-flow/monthly` (agregado SQL con
+//                                            `status <> 'ANULADO'`). La tarjeta NO suma recibos.
+//   cartera por cobrar                       `GET /cartera/resumen`.
+//   proyeccion                               `CashFlowProjection`, que usa el helper puro portado.
+//
+// El tipo de cambio y no otra cosa decide si una cuenta en USD suma: sin TC la cuenta cuenta como
+// 0 y la pantalla lo avisa, en vez de sumarla 1:1 (que inventaria un saldo) o de esconder las
+// cuentas en soles (que si tienen saldo real).
+//
+// DESVIO DELIBERADO: el TC lo lee el provider del vertical (`useCajasBancos().penUsdRate`, una
+// lectura de `GET /settings` por layout) y no esta pantalla, que en el origen lo pedia por su
+// cuenta (`getPenUsdRate`) igual que la tarjeta de proyeccion.
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Calculator,
+  Landmark,
+  Scale,
+  ScrollText,
+  Settings,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { CashFlowProjection } from "@/components/cajas-bancos/cash-flow-projection";
+import { useCajasBancos } from "@/components/cajas-bancos/cajas-bancos-provider";
+import {
+  getCarteraResumen,
+  getMonthlyCashFlow,
+  type CarteraBucket,
+  type CashAccountPosition,
+  type MonthlyCashFlow,
+} from "@/lib/api/client";
+import { listCashPositionsConsolidated } from "@/lib/cajas-bancos/caja";
+import { summarizePositions, toPen } from "@/lib/cajas-bancos/dashboard";
+import { getMonthRange } from "@/lib/cajas-bancos/periodo";
+import { formatCurrency, getTodayLocalDate } from "@gestion/shared";
+
+function formatAmount(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("es-PE", {
+      style: "currency",
+      currency: currency || "PEN",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return formatCurrency(value);
+  }
+}
+
+const QUICK_LINKS = [
+  { href: "/cajas-bancos/cuadres", label: "Cuadres de caja", icon: Calculator },
+  { href: "/cajas-bancos/conciliacion", label: "Conciliación", icon: Scale },
+  { href: "/cajas-bancos/cuentas", label: "Detalle de cuentas", icon: Wallet },
+  { href: "/cajas-bancos/extractos", label: "Extractos", icon: ScrollText },
+  { href: "#flujo", label: "Ver flujo de caja", icon: TrendingUp },
+  { href: "/cajas-bancos/configuracion", label: "Configuración", icon: Settings },
+];
+
+function MetricCard({
+  title,
+  icon: Icon,
+  value,
+  detail,
+  isLoading,
+}: {
+  title: string;
+  icon: typeof Wallet;
+  value: string;
+  detail?: string;
+  isLoading: boolean;
+}) {
+  return (
+    <Card className="bg-muted/30 ring-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <Icon className="size-4" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-7 w-32" />
+        ) : (
+          <>
+            <p className="text-2xl font-semibold">{value}</p>
+            {detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function DashboardView() {
+  const { penUsdRate } = useCajasBancos();
+  const [today] = useState(() => getTodayLocalDate());
+  const [positions, setPositions] = useState<CashAccountPosition[] | null>(null);
+  const [flow, setFlow] = useState<MonthlyCashFlow | null>(null);
+  const [receivable, setReceivable] = useState<CarteraBucket | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const { start, end } = getMonthRange(today);
+
+    void (async () => {
+      try {
+        const [nextPositions, nextFlow, cartera] = await Promise.all([
+          listCashPositionsConsolidated(today),
+          // El resultado del mes lo agrega PostgreSQL: no se suman recibos en el cliente (S2).
+          getMonthlyCashFlow(start, end),
+          getCarteraResumen(),
+        ]);
+
+        if (isMounted) {
+          setPositions(nextPositions);
+          setFlow(nextFlow);
+          setReceivable(cartera.receivable);
+          setError(null);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "No se pudo cargar el dashboard de tesorería.",
+          );
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [today]);
+
+  const isLoading = positions === null;
+  // SPEC 52: el disponible se consolida en soles; sumar crudo inflaria el total con una cuenta en
+  // USD como si fuera PEN.
+  const summary = summarizePositions(
+    (positions ?? []).map((position) => ({
+      type: position.type,
+      balance: toPen(position.balance, position.currency, penUsdRate),
+    })),
+  );
+  const missingExchangeRate =
+    penUsdRate === null && (positions ?? []).some((position) => position.currency !== "PEN");
+
+  return (
+    <main className="container mx-auto flex flex-col gap-6 p-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Tesorería</h1>
+        <p className="text-sm text-muted-foreground">
+          Disponible consolidado, resultado del mes y cartera breve.
+        </p>
+      </div>
+
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <MetricCard
+          title="Disponible total"
+          icon={Wallet}
+          value={formatCurrency(summary.total)}
+          detail={`${summary.count} ${summary.count === 1 ? "cuenta activa" : "cuentas activas"}`}
+          isLoading={isLoading}
+        />
+        <MetricCard
+          title="En cajas"
+          icon={Calculator}
+          value={formatCurrency(summary.cashTotal)}
+          isLoading={isLoading}
+        />
+        <MetricCard
+          title="En bancos"
+          icon={Landmark}
+          value={formatCurrency(summary.bankTotal)}
+          isLoading={isLoading}
+        />
+      </div>
+
+      {missingExchangeRate ? (
+        <p className="text-sm text-amber-600 dark:text-amber-400">
+          Hay cuentas en dólares sin tipo de cambio configurado: se suman como S/ 0. Configúralo en
+          Configuración → General.
+        </p>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card className="bg-muted/30 ring-0">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Resultado del mes
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {isLoading || flow === null ? (
+              <Skeleton className="h-7 w-32" />
+            ) : (
+              <>
+                <p className="text-2xl font-semibold">{formatCurrency(flow.net)}</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <ArrowDownCircle className="size-3.5 text-emerald-600" />
+                    Ingresos {formatCurrency(flow.income)}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <ArrowUpCircle className="size-3.5 text-destructive" />
+                    Egresos {formatCurrency(flow.expense)}
+                  </span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-muted/30 ring-0">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Cartera por cobrar
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {isLoading || receivable === null ? (
+              <Skeleton className="h-7 w-32" />
+            ) : (
+              <>
+                <p className="text-2xl font-semibold">{formatCurrency(receivable.amount)}</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    {receivable.count} {receivable.count === 1 ? "documento" : "documentos"}
+                  </span>
+                  <span className="text-destructive">
+                    Vencido {formatCurrency(receivable.overdueAmount)}
+                  </span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <CashFlowProjection />
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Desglose por cuenta</h2>
+        <div className="overflow-hidden rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Cuenta</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Moneda</TableHead>
+                <TableHead className="text-right">Saldo</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, index) => (
+                  <TableRow key={`skeleton-${index}`}>
+                    <TableCell colSpan={4}>
+                      <Skeleton className="h-5 w-full" />
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : positions.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                    No hay cajas ni bancos activos. Regístralos en Configuración.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                positions.map((position) => (
+                  <TableRow key={position.accountId}>
+                    <TableCell className="font-medium">{position.name}</TableCell>
+                    <TableCell>
+                      {position.type === "BANK_ACCOUNT" ? (
+                        <Badge variant="default">Banco</Badge>
+                      ) : (
+                        <Badge variant="secondary">Caja</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{position.currency}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatAmount(position.balance, position.currency)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+            {!isLoading && positions.length > 0 ? (
+              <TableFooter>
+                <TableRow>
+                  <TableCell colSpan={3}>Total disponible</TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {formatCurrency(summary.total)}
+                  </TableCell>
+                </TableRow>
+              </TableFooter>
+            ) : null}
+          </Table>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Accesos rápidos</h2>
+        <div className="flex flex-wrap gap-2">
+          {QUICK_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              <link.icon />
+              {link.label}
+            </Link>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}

@@ -11,17 +11,23 @@
 // edicion ni de borrado de un cierre porque no hay endpoint que las haga (`close_cash_account` no
 // tiene inversa) y porque el periodo ya bloqueado no debe reabrirse desde una tabla.
 //
-// QUE SE PORTA EN C6 Y QUE NO:
+// QUE SE PORTA EN C6 Y QUE EN C7 (este slice):
 //
-//   - SI: las transferencias del periodo (`listAccountTransfers`, `GET /cash-transfers`). Se piden
-//     junto con los recibos del cierre, con los mismos bordes del periodo, y viajan al reporte para
-//     que la tabla de movimientos las liste como filas propias. Los totales `transferInTotal` y
-//     `transferOutTotal` del cierre siguen viniendo de la RPC: la pantalla no los recalcula.
-//   - NO: "Marcar verificado" sobre los recibos en revision y el modal de cargos bancarios
-//     (`bank-charge-modal.tsx`), que registra un egreso via `POST /payments`. Son acciones de la
-//     conciliacion (C7) y ese componente no existe en este repo: el `StatementTable` los acepta como
-//     props opcionales y esta pantalla no las pasa, que es como se comportaba el origen cuando el
-//     consumidor no las ofrecia.
+//   C6  SI: las transferencias del periodo (`listAccountTransfers`, `GET /cash-transfers`). Se piden
+//       junto con los recibos del cierre, con los mismos bordes del periodo, y viajan al reporte
+//       para que la tabla de movimientos las liste como filas propias. Los totales
+//       `transferInTotal` y `transferOutTotal` del cierre siguen viniendo de la RPC: la pantalla no
+//       los recalcula.
+//   C7  SI: "Marcar verificado" sobre los recibos en revision (`POST /payments/mark-processed`) y
+//       el modal de cargos bancarios (`bank-charge-modal.tsx`), que registra un egreso via
+//       `POST /payments` con `isCashMovement: true` (S8). Son las dos acciones de la conciliacion
+//       del periodo, y van montadas sobre el reporte del cierre elegido como en el origen: la tabla
+//       de movimientos es la misma que revisa el banco.
+//
+// DESVIO DELIBERADO (por el API): "Marcar verificado" es UNA llamada (`markPaymentsProcessed`), no
+// un `UPDATE` por recibo: el API lo hace en una transaccion y devuelve cuantos cambio. El cargo
+// bancario tampoco inserta nada: `bankChargeToPayment` arma el body del recibo y la RPC de pagos lo
+// crea con su numero correlativo.
 //
 // DESVIO DELIBERADO: las lecturas del cuadre ya no se piden desde la pantalla. `loadCuadre`,
 // `loadCloseDetail` y `loadStatement` del provider concentran las cinco lecturas por cuenta y las
@@ -75,8 +81,9 @@ import { useCajasBancos } from "@/components/cajas-bancos/cajas-bancos-provider"
 import { CashCloseModal } from "@/components/cajas-bancos/cash-close-modal";
 import { CashCountModal } from "@/components/cajas-bancos/cash-count-modal";
 import { CashCountsTable } from "@/components/cajas-bancos/cash-counts-table";
+import { BankChargeModal } from "@/components/cajas-bancos/bank-charge-modal";
 import { CuadreReport } from "@/components/cajas-bancos/cuadre-report";
-import type { CashCloseFormValues, CashCountFormValues } from "@gestion/shared";
+import type { BankChargeFormValues, CashCloseFormValues, CashCountFormValues } from "@gestion/shared";
 import { formatCurrency, formatDate, getTodayLocalDate } from "@gestion/shared";
 import { getPeriodicityLabel } from "@gestion/shared/lib/data/cash-options.ts";
 import type {
@@ -85,6 +92,8 @@ import type {
   CloseDenomination,
   Payment,
 } from "@/lib/api/client";
+import { createPayment, markPaymentsProcessed } from "@/lib/api/client";
+import { bankChargeToPayment } from "@/lib/cajas-bancos/cargos";
 import {
   listAccountTransfers,
   type CashTransfer,
@@ -335,6 +344,12 @@ export function CuadresView() {
   const [modalOpen, setModalOpen] = useState(false);
   const [countModalOpen, setCountModalOpen] = useState(false);
   const [isSavingCount, setIsSavingCount] = useState(false);
+  // C7: las dos acciones de conciliacion sobre los recibos del periodo. El contador de refresco es
+  // la unica forma de que "Marcar verificado" y el cargo bancario se vean en la tabla: los dos
+  // cambian filas que ya estan cargadas y el estado del cierre no se mueve.
+  const [statementRefreshKey, setStatementRefreshKey] = useState(0);
+  const [bankChargeOpen, setBankChargeOpen] = useState(false);
+  const [isSavingBankCharge, setIsSavingBankCharge] = useState(false);
 
   // Derivado: si el usuario no eligió cuenta, se usa la primera.
   const accountId = selectedAccountId || accounts[0]?.id || "";
@@ -421,7 +436,7 @@ export function CuadresView() {
     return () => {
       isMounted = false;
     };
-  }, [accountId, selectedClose, loadStatement, loadCloseDetail]);
+  }, [accountId, selectedClose, statementRefreshKey, loadStatement, loadCloseDetail]);
 
   const refreshCuadre = useCallback(
     async (target: CashAccountRecord) => {
@@ -471,6 +486,35 @@ export function CuadresView() {
       toast.error(getErrorMessage(error));
     } finally {
       setIsSavingCount(false);
+    }
+  }
+
+  async function handleMarkVerified(paymentIds: string[]) {
+    try {
+      const count = await markPaymentsProcessed(paymentIds);
+      toast.success(
+        count === 1
+          ? "Recibo marcado como verificado"
+          : `${count} recibos marcados como verificados`,
+      );
+      setStatementRefreshKey((key) => key + 1);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }
+
+  async function handleBankCharge(values: BankChargeFormValues) {
+    setIsSavingBankCharge(true);
+    try {
+      // Un cargo bancario es un egreso sin entidad: no paga una factura (S8).
+      await createPayment(bankChargeToPayment(values));
+      toast.success("Cargo bancario registrado");
+      setBankChargeOpen(false);
+      setStatementRefreshKey((key) => key + 1);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsSavingBankCharge(false);
     }
   }
 
@@ -602,6 +646,8 @@ export function CuadresView() {
               accountType={account.type}
               denominations={denominations}
               changeFund={account.changeFund}
+              onMarkVerified={handleMarkVerified}
+              onRegisterBankCharge={() => setBankChargeOpen(true)}
             />
           ) : null}
 
@@ -621,6 +667,16 @@ export function CuadresView() {
             onDone={(values) => void handleCreateCount(values)}
             isSaving={isSavingCount}
           />
+
+          {account ? (
+            <BankChargeModal
+              open={bankChargeOpen}
+              onOpenChange={setBankChargeOpen}
+              account={account}
+              onDone={(values) => void handleBankCharge(values)}
+              isSaving={isSavingBankCharge}
+            />
+          ) : null}
         </>
       )}
     </div>

@@ -1,16 +1,15 @@
-// Listado de cajas y bancos (C5 del vertical de cajas-bancos).
+// Dashboard de tesoreria: la raiz del vertical de cajas-bancos (C7).
 //
-// En el origen esta ruta era el dashboard del vertical
-// (`app/(app)/cajas-bancos/page.tsx` -> `DashboardView`) y el listado de cuentas vivia dentro de
-// "Configuracion > Cuentas". Aca el dashboard es C7 (proyeccion y flujo del mes) y el listado con su
-// formulario ya tiene API, asi que la ruta raiz del vertical es el listado: es lo primero que un
-// dueno nuevo necesita (registrar su caja) y no depende de pantallas sin portar.
+// Misma ruta y mismo componente que el origen (`app/(app)/cajas-bancos/page.tsx` -> `DashboardView`).
+// C5 habia dejado el listado de cuentas en esta ruta y anotado que el dashboard era C7; ahora que
+// existen el agregado del mes (`GET /cash-flow/monthly`), la proyeccion y la cartera breve, la raiz
+// vuelve a ser el dashboard y el listado sigue en "Configuracion > Cuentas" y en
+// `/cajas-bancos/cuentas`.
 //
-// La pagina es de servidor y no resuelve nada: el componente es cliente porque todo el estado
-// (modal, filtro, tabla) vive en el navegador y las escrituras salen por el puente
-// `/api/backend`.
-import { CajasBancosListadoView } from "@/components/cajas-bancos/cajas-bancos-listado-view";
+// La pagina es de servidor y no resuelve nada: todo el estado vive en el navegador y las lecturas
+// salen por el puente `/api/backend`.
+import { DashboardView } from "@/components/cajas-bancos/dashboard-view";
 
 export default function CajasBancosPage() {
-  return <CajasBancosListadoView />;
+  return <DashboardView />;
 }

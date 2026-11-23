@@ -9,17 +9,24 @@
 // probar con `node --test` (el runner de los helpers web no compila JSX). Este archivo se queda con
 // lo que es UI: columnas, seleccion multiple de recibos en revision y paginacion.
 //
-// QUE NO SE PORTA Y POR QUE (lo decide quien monta el componente, no este archivo): las dos acciones
-// del origen son props OPCIONALES que hoy nadie pasa.
+// QUE SE PORTA Y QUE SE QUEDA EN EL CONSUMIDOR: las dos acciones del origen son props OPCIONALES y
+// desde C7 hay quien las pasa.
 //
-//   `onMarkVerified`     marca recibos EN_REVISION como verificados (`POST /payments/process`).
-//                        Es el paso de conciliacion bancaria, que es C7 y no tiene pantalla aca.
-//   `onRegisterBankCharge`  abre el modal de cargo bancario (`bank-charge-modal.tsx`), que tampoco
-//                        forma parte de este slice.
+//   `onMarkVerified`     marca recibos EN_REVISION como verificados (`POST
+//                        /payments/mark-processed`). Es el paso de conciliacion bancaria. Se pasa
+//                        desde el reporte del cuadre (`cuadre-report.tsx`) -> `cuadres-view.tsx`,
+//                        igual que en el origen.
+//   `onRegisterBankCharge`  abre el modal de cargo bancario (`bank-charge-modal.tsx`), que llego en
+//                        C7 junto con las acciones. El modal existe: ya no hay una prop sin
+//                        consumidor.
 //
 // Sin esas props el comportamiento es el del origen cuando el consumidor no las pasaba: la barra de
-// acciones no se dibuja y la columna de acciones queda vacia. No hay stub ni boton deshabilitado:
-// el modal de cargo bancario simplemente no existe en este repo todavia.
+// acciones no se dibuja y la columna de acciones queda vacia. Eso sigue siendo util: el reporte de
+// un cierre ya procesado no ofrece acciones.
+//
+// QUE FILAS SE PUEDEN MARCAR es una regla pura y vive en `lib/cajas-bancos/statement.ts`
+// (`markableReceiptIds`), con su test: solo recibos EN_REVISION, nunca una transferencia ni un
+// recibo ya procesado o anulado.
 //
 // DESVIO DELIBERADO: la cabecera ordenable del origen usaba `DataTableColumnHeader`
 // (`components/shared/data-table-column-header`), que no esta portado. Aca se usa el mismo boton
@@ -53,7 +60,7 @@ import {
 } from "@/components/ui/table";
 import { DataTablePagination } from "@/components/shared/data-table-pagination";
 import { ReceiptStatusBadge } from "@/components/pagos/receipt-status-badge";
-import { buildStatementRows, type StatementRow } from "@/lib/cajas-bancos/statement";
+import { buildStatementRows, markableReceiptIds, type StatementRow } from "@/lib/cajas-bancos/statement";
 import { formatCurrency, formatDate } from "@gestion/shared";
 
 export type { StatementRow };
@@ -138,14 +145,9 @@ export function StatementTable({
   const [isSaving, setIsSaving] = useState(false);
 
   // Solo los recibos en revision pueden marcarse como verificados: una transferencia no es un
-  // recibo y un pago ya procesado no se vuelve a procesar.
-  const markableIds = useMemo(
-    () =>
-      rows
-        .filter((row) => row.kind === "PAYMENT" && row.status === "EN_REVISION")
-        .map((row) => row.id),
-    [rows],
-  );
+  // recibo y un pago ya procesado no se vuelve a procesar (la regla esta en `statement.ts`, con su
+  // test).
+  const markableIds = useMemo(() => markableReceiptIds(rows), [rows]);
   const selectedIds = useMemo(
     () => selected.filter((id) => markableIds.includes(id)),
     [selected, markableIds],

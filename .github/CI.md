@@ -46,11 +46,13 @@ executed". Agregar el paso seria un verde vacio.
 | 9 | auditoria de RLS (S19, 8 bloques) | `pnpm --filter @gestion/db db:verify-rls` |
 | 10 | aislamiento por dueno (42 aserciones) | `pnpm --filter @gestion/db db:check-rls` |
 
-### `e2e` -- el vertical de pagos con Playwright
+### `e2e` -- los verticales de pagos y clientes con Playwright
 
-T7. Levanta los DOS procesos reales (`apps/api` compilado con esbuild y `next build` + `next start`)
-sobre una base migrada y sembrada, y recorre el vertical como lo usa una persona: sin sesion ->
-login -> listado vacio -> alta con asignacion -> anulacion -> error de dominio -> cierre de sesion.
+T7 (pagos) + T5c (clientes). Levanta los DOS procesos reales (`apps/api` compilado con esbuild y
+`next build` + `next start`) sobre una base migrada y sembrada, y recorre los verticales como los
+usa una persona: sin sesion -> login -> listado vacio -> alta con asignacion -> anulacion -> error
+de dominio -> cierre de sesion (pagos), y listado vacio -> alta -> documento duplicado -> edicion ->
+baja logica -> documento invalido (clientes).
 
 | # | paso | comando |
 | --- | --- | --- |
@@ -59,7 +61,7 @@ login -> listado vacio -> alta con asignacion -> anulacion -> error de dominio -
 | 6 | las 50 migraciones | `pnpm --filter @gestion/db db:verify` |
 | 7 | seeds en el orden de S20 (la demo tiene que existir) | `pnpm --filter @gestion/db db:seed` |
 | 8 | **solo Chromium**, con sus dependencias de sistema | `pnpm --filter @gestion/web exec playwright install --with-deps chromium` |
-| 9 | **los 10 specs** | `pnpm e2e` |
+| 9 | **los 16 tests de los 8 specs** | `pnpm e2e` |
 
 Un solo comando (`pnpm e2e` -> `turbo run e2e` -> `playwright test`): el `webServer` de
 `apps/web/playwright.config.ts` compila y levanta el API y la web, espera a que respondan y los
@@ -68,7 +70,12 @@ apaga al terminar. No hay `continue-on-error` ni reintentos: un spec que falla r
 Cada spec crea su propio usuario desechable y sus fixtures (cuenta de caja, comprobante) por SQL con
 `psql`, y las borra en orden de FK. El `globalTeardown` vuelve a medir los conteos de las tablas
 sembradas y falla la corrida si alguna diferencia con el baseline. Los detalles -- transporte de
-psql, variables, que NO esta cubierto -- estan en "e2e del vertical de pagos (Playwright)", abajo.
+psql, variables, que NO esta cubierto -- estan en "e2e de los verticales (Playwright)", abajo.
+
+Nota de entorno para Windows: si `docker` solo se alcanza por un shim `.cmd` (no hay `docker.exe`
+en el PATH), el transporte de psql del suite falla con `spawnSync docker ENOENT` porque Node no
+aplica `PATHEXT`. Se resuelve exportando `DOCKER` con la ruta absoluta al `docker.exe` (el helper
+ya lo soporta) o poniendo el directorio real de Docker Desktop en el PATH.
 
 ## Variables de entorno
 

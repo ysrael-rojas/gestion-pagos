@@ -42,12 +42,14 @@ propio. Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app
   `apps/web/lib/clientes/entidades.ts`, mutaciones del provider. Specs: S1, S3, S5. Ruta: inline.
   **Hecho**: typecheck verde, commit `959d50c`.
 - C3 — UI: port de `components/clientes/*`, ruta `app/(app)/clientes/listado` y entrada "Maestro"
-  en la navbar. Specs: S1, S3, S4, S6. Ruta: worker (context backstop). Commit: _(pendiente)_.
+  en la navbar. Specs: S1, S3, S4, S6. Ruta: worker (context backstop). **Hecho**: typecheck 0,
+  34/34, commit `e58a4a3`; el worker detecto el error de S3 (L11).
 - C4 — Consistencia de tipos y cobertura del schema Zod por el borde HTTP (hoy huérfano en
   `packages/shared`). Specs: S6. Ruta: inline. **Hecho**: typecheck web + 34/34 tests, commit
   `cbad13b`.
 - C5 — e2e `08-clientes.spec.ts`: alta, conflicto de documento duplicado, edición, baja lógica que
-  persiste tras recargar. Specs: S3, S4, S5, S7. Ruta: inline. Commit: _(pendiente)_.
+  persiste tras recargar. Specs: S3, S4, S5, S7. Ruta: worker + padre. **Hecho**: 6/6 verde y
+  conteos intactos (L13), commits `a7ae99d` (spec) y `2ec7bdc` (fix del puente, L12).
 - C6 — Docs: fila en `.github/CI.md`, cierre en `port-monorepo.md` y handoff del vertical.
   Specs: S7. Ruta: inline. Commit: _(pendiente)_.
 
@@ -64,6 +66,12 @@ Rama `feat/vertical-clientes`. Un commit por unidad revisable.
   tabla de S2/S3/S5, no contra la implementacion.
 - **Slice 3 — `cbad13b`** `refactor(shared)`: colapso del tipo `Client` duplicado.
 - **Slice 4 — `959d50c`** `feat(web)`: capa de datos del vertical.
+- **Slice 5 — `e58a4a3`** `feat(web)`: port de las pantallas de clientes (1.033 lineas de diff,
+  ~370 autoradas: el resto es codigo portado casi literal del source, que se revisa por diff contra
+  el original y no linea por linea).
+- **Slice 6 — `2ec7bdc`** `fix(web)`: PATCH en el puente same-origin. Es un defecto que solo el
+  e2e podia encontrar (L12).
+- **Slice 7 — `a7ae99d`** `test(web)`: el spec 08 y sus fixtures.
 
 Un PR de este vertical supera las ~400 lineas: cuando se publique, la forma (PR encadenado API+UI
 o un PR unico con el orden de los commits como guia) es decision del usuario, no de este documento.
@@ -90,6 +98,24 @@ o un PR unico con el orden de los commits como guia) es decision del usuario, no
 - **L10 — Nota de slice (harness).** Los slices 1 y 2 superan las ~400 lineas por commit (505 y
   500). Van separados a proposito (codigo vs tests) y la revision se guia por el orden de los
   commits; se anota para que no parezca un descuido.
+- **L12 — Defecto encontrado por el e2e (no por revision).** `app/api/backend/[...path]/route.ts`
+  solo permitia `GET` y `POST`, asi que `PATCH /entities/:id` moria en el puente con 405 y la
+  pantalla de edicion mostraba "El API respondio 405": un defecto de la web que parecia del API.
+  La lista de prefijos ya incluia `entities`; faltaba el metodo. El test 4 del spec 08 fallo por
+  esta causa exacta y paso sin tocar la asercion despues del fix (`2ec7bdc`).
+- **L13 — Hallazgo de entorno, ajeno a este vertical.** En la suite completa fallan
+  `04-create-payment` y `05-void-payment` (pagos) con "La fecha del recibo (2026-11-22) es
+  anterior al saldo inicial de la cuenta (2026-11-23)". Causa: el contenedor corre en UTC y ya es
+  2026-11-23, mientras la UI calcula "hoy" en `America/Lima` (2026-11-22) y los fixtures crean la
+  cuenta con el `current_date` de la base. **No es una regresion de esta rama**: la regla es de
+  fechas, no toca `entidad` ni el puente, y el mismo codigo de pagos sin cambios falla igual entre
+  las 19:00 y las 24:00 de Lima. Queda como deuda: el fixture deberia crear la cuenta con la fecha
+  local de la app, no con la de la base.
+- **L14 — Verificacion independiente: no disponible.** `gentle-ai-verify` se colgo 30 minutos en
+  una llamada de `bash` (mismo sintoma que el primer worker de C5). Sin verificador, los riesgos 2
+  y 3 de C1 quedan **sin verificacion independiente**: hay evidencia propia (9/9 del e2e de API,
+  6/6 del e2e del vertical, revision de los caminos de escritura), pero no la firma de un tercero.
+  No se declara verificado.
 - **L11 — Correccion de spec (error del padre).** S3 citaba como textual una confirmacion de
   borrado que **no** era la del source ("Estas seguro? Esto eliminara el cliente."), inventada al
   redactar el documento. El worker de C3 lo detecto al diffear contra el source. La cadena real es
@@ -116,3 +142,32 @@ o un PR unico con el orden de los commits como guia) es decision del usuario, no
   origen se cubren **por el borde HTTP** (test "el contrato compartido valida los formatos de
   documento del formulario"), que es lo que S7 pide: efectos observables por la interfaz publica.
   Se descarto el archivo `apps/web/lib/clientes/client-schema.test.ts`.
+
+## Estado para retomar
+
+**Donde esta todo.** Rama `feat/vertical-clientes`, 7 commits sobre `main`, sin push. El vertical
+`clientes` esta completo: API con escrituras (`POST`/`PATCH`/`POST :id/delete`), capa de datos web,
+pantallas, y e2e propio. No hay cambios en `packages/db`: la tabla `entidad` ya existia entera.
+
+**Verificacion al cerrar.**
+- `apps/api/test/entities.e2e.test.ts` — 9/9 verde contra base viva.
+- `apps/api/test/catalogs.e2e.test.ts` (baseline de pagos) — 6/6 verde.
+- `apps/web/e2e/specs/08-clientes.spec.ts` — 6/6 verde, conteos de la base identicos antes y despues.
+- Suite completa: 14/16; los 2 fallos son `04`/`05` de pagos por el desfase de fecha (L13), no por
+  esta rama.
+- `typecheck` verde en api y web; `apps/web` unit 34/34.
+
+**Lo que NO esta hecho.**
+- Verificacion independiente de los riesgos 2 y 3 de C1: el verificador se colgo (L14).
+- Deudas heredadas del vertical, sin tocar: unicidad global del documento (L7) y la fecha del
+  fixture de caja (L13).
+- `odd/tasks/port-monorepo.md` tiene un cambio sin commitear de la sesion de entorno (notas de los
+  shims de `install/home/bin`, deuda L79): no pertenece a este vertical.
+
+**Como correr el e2e en esta maquina.** Exportar `DOCKER` con la ruta absoluta al `docker.exe`
+(Node no aplica `PATHEXT` y el shim `.cmd` no sirve para `spawnSync`), `DATABASE_URL` de la base dev,
+`E2E_WEB_PORT`/`E2E_API_PORT` distintos de 3000/3001 (3001 suele estar ocupado por un API de una
+sesion anterior) y `PLAYWRIGHT_BROWSERS_PATH` al `.cache/ms-playwright` del repo.
+
+**Siguiente vertical.** `cajas-bancos` (arrastra `ensureDefaultSettings`, deuda L67 del doc padre),
+despues ventas/compras.

@@ -25,6 +25,10 @@ const ALLOWED_PREFIXES = new Set([
   "vouchers",
   "entities",
   "cash-accounts",
+  // C3 del vertical de cajas: posiciones y fechas de ultimo movimiento. Sin estos dos prefijos
+  // el navegador recibe 404 del puente aunque la ruta exista en el API.
+  "cash-positions",
+  "last-movement-dates",
   "payment-methods",
   "receipt-categories",
   "catalogs",

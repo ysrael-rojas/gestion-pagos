@@ -10,10 +10,13 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
   padre, S4): dominio, UI y e2e. La capa Supabase no se porta: `apps/web` consume `apps/api` (padre,
   S8). El dominio peruano del vertical (arqueo, conciliación, caja chica, ITF, detracciones) se rige
   por `.agents/skills/caja-bancos-mype/SKILL.md`, que es autoridad para procedimientos y controles.
-- **S2 — El saldo lo calcula la base, nunca la app.** `private.cash_expected_balance` es la única
-  fórmula (`opening_balance + ingresos − egresos (status <> 'ANULADO') ± transferencias`). La UI
-  puede mostrar lo que devuelve una RPC; no puede persistir un saldo calculado en JS. `authenticated`
-  no tiene `execute` sobre el esquema `private`.
+- **S2 — El saldo lo calcula la base, nunca la app.** La fórmula es
+  `opening_balance + ingresos − egresos (status <> 'ANULADO') ± transferencias`, y la app solo
+  muestra lo que devuelve una función SQL; no puede persistir un saldo calculado en JS.
+  **Corregido en L10**: `private.cash_expected_balance` es la fórmula de las rutas que ESCRIBEN
+  dinero (`close_cash_account`, `register_cash_count` la usan), pero `get_cash_position` y
+  `get_cash_positions` la reimplementan inline. O sea que la "única fórmula" son en realidad tres
+  definiciones en SQL: cambiar la semántica exige tocar las tres.
 - **S3 — Cierre y arqueo son RPC, no DML.** `close_cash_account` y `register_cash_count` son
   `security definer` y las tablas `cash_close`/`cash_close_denomination`/`cash_count` tienen el
   INSERT/UPDATE/DELETE revocado para `authenticated`. Si el port intentara escribir esas tablas,
@@ -104,12 +107,28 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   tabla no tiene FK a `auth.users`, así que cada test limpia las suyas; C8 lo lleva al teardown
   común. El barrel `apps/api/src/db/schema/index.ts` no se tocó: el servicio importa el schema
   directo (una línea de seguimiento si se quiere consistencia).
+- **L10 — Corrección de la spec (error del padre) y hallazgo de C3.** Verificado con
+  `pg_get_functiondef` en la base viva: `close_cash_account` y `register_cash_count` **sí**
+  referencian `private.cash_expected_balance`; `get_cash_position` y `get_cash_positions`
+  **no** (position 0 en su definición), reimplementan la fórmula inline. S2 afirmaba una fórmula
+  única: era falso. Consecuencia práctica: cualquier cambio de semántica del saldo hay que hacerlo
+  en tres lugares, y por eso C4 (que llama a los RPC de escritura) no debe "ayudar" recalculando
+  nada en Node — de eso no se salva ningún camino.
+- **L11 — Hallazgo de C3: el puente no alcanzaba dos rutas nuevas.** `cash-positions` y
+  `last-movement-dates` no estaban en la lista blanca de `app/api/backend/[...path]/route.ts`, así
+  que el navegador recibía 404 del puente con la ruta existiendo en el API. Agregadas en este
+  slice: son rutas de lectura y el prefijo ya estaba acotado por recurso.
 - **L9 — El bug de fechas estaba también en el fixture del API.** Al verificar C2, `payments.e2e`
   quedó **14/18**: los tests arman `paymentDate` con `getTodayLocalDate()` (Lima) mientras
   `apps/api/test/support/fixtures.ts` creaba la cuenta y los comprobantes con el `current_date` del
   contenedor (UTC). Misma clase que L15 del vertical de clientes, pero del lado del API, y por eso
   el mismo arreglo: `APP_TODAY = (now() at time zone 'America/Lima')::date` en las cinco fechas del
-  fixture. Evidencia: 14/18 antes, verde después, con el mismo reloj.
+  fixture. Evidencia: 14/18 antes, **18/18** después, con el mismo reloj.
+  El arreglo destapó una segunda inconsistencia, tapada por casualidad: la expectativa del test de
+  `/cartera/resumen` calculaba el vencimiento con el `current_date` del contenedor, mientras el API
+  lo calcula con "hoy" local. Con las fechas alineadas, el test comparaba dos nociones distintas de
+  hoy (0 !== 2). La expectativa usa ahora `APP_TODAY`; el API no se tocó, porque el correcto es el
+  suyo: un comprobante que vence hoy no está vencido para el negocio.
 - **L6 — Orden de slices acordado (recon, seccion 7).** C1 settings, C2 cuentas, C3 posiciones,
   C4 cierres/arqueos, C5 pantallas base, C6 transferencias/caja chica, C7 conciliación y
   configuración, C8 e2e y RLS. C4 lleva riesgo 1 (irreversible) y 4 (concurrencia) y por eso va con

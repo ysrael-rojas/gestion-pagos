@@ -260,6 +260,38 @@ export interface CashAccountWrite {
   custodianName?: string;
 }
 
+/**
+ * Una fila de `GET /cash-positions` (`apps/api/src/cash/positions.types.ts`).
+ *
+ * Es la union que el origen hacia en el cliente de la RPC `get_cash_positions` con
+ * `listCashAccounts()` (`listCashPositionsConsolidated`, `lib/caja/caja.ts:453-476`), ya resuelta
+ * en SQL: el SALDO lo devuelve la base (S2) y las otras siete columnas son de la misma fila de
+ * `cash_account`, que es lo que leen el dashboard (`type`, `currency`, `balance`) y el listado
+ * (`name`, `bankName`, `closingPeriodicity`, `isPettyCash`).
+ *
+ * El origen lo tipaba anidado (`CashAccountPosition { account, balance }`); aca la fila es plana
+ * porque asi la devuelve el API y no hay nada que anidar. Cambiarla es cambiar
+ * `positions.types.ts` alla.
+ */
+export interface CashAccountPosition {
+  accountId: string;
+  name: string;
+  type: CashAccountType;
+  currency: string;
+  balance: number;
+  bankName: string | null;
+  closingPeriodicity: ClosingPeriodicity | null;
+  isPettyCash: boolean;
+}
+
+/**
+ * `GET /last-movement-dates`: `accountId -> "YYYY-MM-DD"` del ultimo recibo no anulado.
+ *
+ * Una cuenta AUSENTE del mapa no tiene movimientos (la UI muestra "sin movimientos"), que es
+ * justo lo que el origen decidia con este mapa (`lib/caja/caja.ts:478-500`).
+ */
+export type LastMovementDates = Record<string, string>;
+
 export interface PaymentMethodCatalogItem {
   id: string;
   code: string;
@@ -637,6 +669,38 @@ export async function softDeleteCashAccount(id: string): Promise<void> {
   await request<{ deleted: true }>(`/cash-accounts/${encodeURIComponent(id)}/delete`, {
     method: "POST",
   });
+}
+
+/**
+ * Saldos de todas las cuentas vivas del dueno (`listCashPositionsConsolidated` del origen).
+ *
+ * Una sola llamada: el origen pedia la RPC de posiciones y el catalogo de cuentas en paralelo y
+ * los cruzaba en el cliente. `asOf` es el corte; sin el, la base usa `current_date`.
+ */
+export function listCashPositions(asOf?: string): Promise<CashAccountPosition[]> {
+  return request<CashAccountPosition[]>("/cash-positions", { query: { asOf } });
+}
+
+/**
+ * Saldo de UNA cuenta a una fecha (`getCashPosition` del origen, que devolvia un number).
+ *
+ * Un id inexistente, borrado o de otro dueno responde 404: el `ApiError` llega con el mensaje de
+ * dominio del API. No se devuelve un 0 silencioso, que seria un saldo inventado.
+ */
+export function getCashPosition(accountId: string, asOf?: string): Promise<number> {
+  return request<number>(`/cash-accounts/${encodeURIComponent(accountId)}/position`, {
+    query: { asOf },
+  });
+}
+
+/**
+ * Ultimo recibo no anulado por cuenta (`listLastMovementDates` del origen).
+ *
+ * Una sola llamada (la RPC `list_last_movement_dates`): PostgREST rechazaba el agregado
+ * `payment_date.max()` en el origen y por eso se movio a SQL (SPEC 55).
+ */
+export function listLastMovementDates(): Promise<LastMovementDates> {
+  return request<LastMovementDates>("/last-movement-dates");
 }
 
 /** Metodos de pago (`listPaymentMethods`). */

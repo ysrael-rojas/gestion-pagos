@@ -329,3 +329,96 @@ export function cashTransferNotFound(): NotFoundException {
 export function pettyCashValeNotFound(): NotFoundException {
 	return new NotFoundException("El vale no existe.");
 }
+
+// ------------------------------------------------------------------------------------------
+// C7 — conciliacion bancaria (`bank_reconciliation` + `bank_reconciliation_item`).
+//
+// Las ocho reglas de la RPC `public.save_bank_reconciliation` (SPEC 53) levantan `P0001` con el
+// mensaje ya redactado para el usuario. Igual que en C6, el CODIGO no decide solo: aporta la
+// familia (excepcion de dominio, unique, check, permisos) y el MENSAJE elige el status dentro de
+// la familia. Comparar por codigo nada mas convertiria "Solo se concilian cuentas bancarias" y
+// "La cuenta no existe" en el mismo 400, y son cosas distintas para el cliente.
+//
+// El texto viaja TAL CUAL, sin reescribirlo: es el que el origen mostraba
+// (`lib/caja/conciliacion.ts:45-46`, `mapError`) y el que la pantalla de conciliacion muestra.
+const RECONCILIATION_ACCOUNT_MISSING = /^La cuenta no existe$/;
+
+/**
+ * Status de un `P0001` de la conciliacion.
+ *
+ * 404 = la cuenta no es visible para el dueno de la sesion (no existe o es de otro: la RPC usa el
+ * MISMO texto para los dos casos a proposito, para no filtrar la existencia de cuentas ajenas).
+ * 400 = la base rechazo una peticion que el usuario puede corregir (tipo de cuenta, periodo,
+ * saldos o partidas).
+ */
+function reconciliationStatusOf(message: string): 404 | 400 {
+	return RECONCILIATION_ACCOUNT_MISSING.test(message) ? 404 : 400;
+}
+
+/** `23505` sobre el triplete `(cash_account_id, period_start, period_end)`. */
+export const DUPLICATE_RECONCILIATION_MESSAGE = "Ya existe una conciliación para ese período.";
+
+/**
+ * `23503`: una FK que no resuelve. Textual del origen (`lib/caja/conciliacion.ts:51-52`).
+ *
+ * Inalcanzable por esta ruta: la RPC valida la cuenta con `for update` ANTES del upsert, asi que
+ * una cuenta inexistente responde su mensaje de dominio. Se conserva por la misma razon que los
+ * otros mensajes inalcanzables del vertical: una constraint nueva no puede hacer aparecer el texto
+ * de otro vertical.
+ */
+const MISSING_RECONCILIATION_ACCOUNT_MESSAGE = "La cuenta bancaria seleccionada no existe.";
+
+/** `23514` sin constraint reconocida. Textual del origen (`lib/caja/conciliacion.ts:54-55`). */
+const INVALID_RECONCILIATION_DATA_MESSAGE = "Los datos de la conciliación no son válidos.";
+
+/**
+ * Convierte el error de la RPC de conciliacion (o de su lectura por Drizzle) en HTTP.
+ *
+ * Un `P0001` que no este en la tabla cae en 400 con su texto: una regla nueva de la RPC se le
+ * muestra al usuario en vez de convertirse en un 500.
+ */
+export function toReconciliationHttpException(error: unknown): HttpException {
+	if (error instanceof HttpException) {
+		return error;
+	}
+
+	const postgres = normalizePostgresError(error);
+
+	if (!postgres?.code) {
+		return new InternalServerErrorException(GENERIC);
+	}
+
+	const message = postgres.message ?? "";
+
+	switch (postgres.code) {
+		case "P0001": {
+			// Excepcion de dominio de PL/pgSQL: mensaje textual, status por la tabla de arriba.
+			const status = reconciliationStatusOf(message);
+
+			return status === 404
+				? new NotFoundException(message || GENERIC)
+				: new BadRequestException(message || GENERIC);
+		}
+		case "23505":
+			return new ConflictException(DUPLICATE_RECONCILIATION_MESSAGE);
+		case "23514":
+			return new BadRequestException(INVALID_RECONCILIATION_DATA_MESSAGE);
+		case "23503":
+			return new BadRequestException(MISSING_RECONCILIATION_ACCOUNT_MESSAGE);
+		case "42501":
+			// Las dos tablas solo tienen politica de SELECT: un DML directo o un grant que falte
+			// es un hallazgo, no algo a sortear aca.
+			return new ForbiddenException(
+				isPrivilegeDenial(message)
+					? "No tienes permisos para esta operación. Cierra sesión y vuelve a entrar."
+					: message || "No tienes permisos para esta operación.",
+			);
+		default:
+			return new InternalServerErrorException(GENERIC);
+	}
+}
+
+/** La conciliacion no existe o es de otro dueno: la RLS ya la hace invisible. */
+export function bankReconciliationNotFound(): NotFoundException {
+	return new NotFoundException("La conciliación no existe.");
+}

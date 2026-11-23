@@ -131,7 +131,9 @@ o un PR unico con el orden de los commits como guia) es decision del usuario, no
   "¿Seguro que quieres eliminar este cliente? Esta acción no se puede deshacer."
   (`gestion-app/app/(app)/clientes/listado/page.tsx:138`). S3 queda reescrita **citando la linea**
   de cada string, para que no vuelva a pasar, y la UI se ajusta a la del source.
-- **L7 — Hallazgo (regresión de contrato heredada).** `entidad_document_unique` es
+- **L7 — CERRADO.** Ver `odd/tasks/entidad-unico-por-dueno.md`: el índice pasó a llevar
+  `owner_id` (rama `fix/entidad-unico-por-dueno`). El hallazgo original queda abajo como registro.
+- **L7 (hallazgo original) — Regresión de contrato heredada.** `entidad_document_unique` es
   `(document_type, document_number)` **sin `owner_id`**: dos duenos distintos no pueden usar el
   mismo RUC/DNI. Viene de la migracion del origen, que es fuente de verdad (S7 del doc padre), asi
   que no se toca en este port; el e2e lo fija ("el numero de documento es unico entre duenos").
@@ -168,8 +170,8 @@ pantallas, y e2e propio. No hay cambios en `packages/db`: la tabla `entidad` ya 
 
 **Lo que NO esta hecho.**
 - Verificacion independiente de los riesgos 2 y 3 de C1: el verificador se colgo (L14).
-- Deuda heredada del vertical, sin tocar: unicidad global del documento (L7). La fecha del
-  fixture de caja quedo arreglada (L15).
+- Sin deudas abiertas del vertical: la unicidad global del documento (L7) se cerro en
+  `odd/tasks/entidad-unico-por-dueno.md`, y la fecha del fixture de caja en L15.
 - `odd/tasks/port-monorepo.md` tiene un cambio sin commitear de la sesion de entorno (notas de los
   shims de `install/home/bin`, deuda L79): no pertenece a este vertical.
 

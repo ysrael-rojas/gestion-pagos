@@ -47,7 +47,8 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
   Specs: S7, S6. Ruta: worker. **Hecho**: 7/7 del e2e nuevo, baseline de catálogos 6/6,
   typecheck api+web verde, commit: _(pendiente)_.
 - C2 — Cuentas: `POST/PATCH /cash-accounts`, `POST /cash-accounts/:id/delete`, DTO completo.
-  Specs: S1, S6. Ruta: pendiente. Commit: _(pendiente)_.
+  Specs: S1, S6. Ruta: worker. **Hecho**: 8/8 del e2e nuevo, catálogos 6/6, typecheck verde,
+  commit `c260e41`.
 - C3 — Posiciones y fechas: `GET /cash-positions`, `/cash-accounts/:id/position`, `/last-movement-dates`.
   Specs: S2, S6. Ruta: pendiente. Commit: _(pendiente)_.
 - C4 — Cierres y arqueos por RPC: `GET/POST /cash-closes`, `GET/POST /cash-counts`.
@@ -60,6 +61,19 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
   Specs: S1, S2. Ruta: pendiente. Commit: _(pendiente)_.
 - C8 — e2e del vertical, teardown y baseline de las tablas de caja, RLS y docs.
   Specs: S9. Ruta: pendiente. Commit: _(pendiente)_.
+
+## Cortes de entrega
+
+Rama `feat/vertical-cajas-bancos`. Un commit por slice.
+
+- **Slice 2 — `c260e41`** `feat(api)`: cuentas (escritura + lectura completa, ~586 líneas de
+  implementación y 594 de test). El test es grande a propósito: cubre el alta por tipo, el CHECK del
+  banco, el aislamiento entre dueños y que `GET /cash-accounts` no cambió de forma.
+- **Slice 1 — `7328a02`** `feat(api)`: settings + ensure (1.138 líneas de diff, ~340 autoradas de
+  implementación + 394 de test + el documento). Pasa las ~400 por commit porque el e2e del
+  slice es grande y el documento de la feature entra en el mismo commit; la implementación sola
+  son ~240 líneas en 5 archivos. Revisar `settings.service.ts` (semántica del ensure) y
+  `settings.types.ts` (los tres valores sembrados).
 
 ## Log
 
@@ -90,6 +104,12 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
   tabla no tiene FK a `auth.users`, así que cada test limpia las suyas; C8 lo lleva al teardown
   común. El barrel `apps/api/src/db/schema/index.ts` no se tocó: el servicio importa el schema
   directo (una línea de seguimiento si se quiere consistencia).
+- **L9 — El bug de fechas estaba también en el fixture del API.** Al verificar C2, `payments.e2e`
+  quedó **14/18**: los tests arman `paymentDate` con `getTodayLocalDate()` (Lima) mientras
+  `apps/api/test/support/fixtures.ts` creaba la cuenta y los comprobantes con el `current_date` del
+  contenedor (UTC). Misma clase que L15 del vertical de clientes, pero del lado del API, y por eso
+  el mismo arreglo: `APP_TODAY = (now() at time zone 'America/Lima')::date` en las cinco fechas del
+  fixture. Evidencia: 14/18 antes, verde después, con el mismo reloj.
 - **L6 — Orden de slices acordado (recon, seccion 7).** C1 settings, C2 cuentas, C3 posiciones,
   C4 cierres/arqueos, C5 pantallas base, C6 transferencias/caja chica, C7 conciliación y
   configuración, C8 e2e y RLS. C4 lleva riesgo 1 (irreversible) y 4 (concurrencia) y por eso va con

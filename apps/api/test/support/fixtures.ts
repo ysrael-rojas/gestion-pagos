@@ -22,6 +22,17 @@ import type { Auth } from "../../src/auth/auth.ts";
 /** Contrasena de los usuarios de prueba. Vive solo en memoria del test, nunca en el repo. */
 export const TEST_PASSWORD = "e2e-fixture-passw0rd";
 
+/**
+ * "Hoy" para las fixtures, en la zona de la APP y no la del contenedor.
+ *
+ * Mismo criterio (y mismo bug) que `apps/web/e2e/support/owner.ts`: los tests arman el
+ * `paymentDate` con `getTodayLocalDate()` (America/Lima), mientras Postgres del compose corre en
+ * UTC. Entre las 19:00 y las 24:00 de Lima UTC ya es el dia siguiente, asi que una cuenta
+ * "abierta hoy" por SQL nacia con fecha futura y `private.assert_account_open_for` rechazaba el
+ * pago con "La fecha del recibo (...) es anterior al saldo inicial de la cuenta (...)".
+ */
+export const APP_TODAY = "(now() at time zone 'America/Lima')::date";
+
 export interface OwnerSession {
 	ownerId: string;
 	email: string;
@@ -200,7 +211,7 @@ export async function seedSecondOwnerDomain(pool: Pool, ownerId: string): Promis
 
 	await pool.query(
 		`insert into public.cash_account (id, type, name, currency, opening_balance, opening_balance_date, owner_id)
-		 values ($1, 'CASH_BOX', $2, 'PEN', 0, current_date, $3)`,
+		 values ($1, 'CASH_BOX', $2, 'PEN', 0, ${APP_TODAY}, $3)`,
 		[ids.cashAccountId, `E2E caja ${tag}`, ownerId],
 	);
 
@@ -219,8 +230,8 @@ export async function seedSecondOwnerDomain(pool: Pool, ownerId: string): Promis
 	await pool.query(
 		`insert into public.comprobante
 		   (id, entity_id, voucher_kind, voucher_type, voucher_number, issue_date, subtotal, igv, total, payment_type, owner_id)
-		 values ($1, $2, 'VENTA', 'FACTURA', $3, current_date, 1000, 0, 1000, 'CONTADO', $4),
-		        ($5, $2, 'VENTA', 'FACTURA', $6, current_date, 300, 0, 300, 'CONTADO', $4)`,
+		 values ($1, $2, 'VENTA', 'FACTURA', $3, ${APP_TODAY}, 1000, 0, 1000, 'CONTADO', $4),
+		        ($5, $2, 'VENTA', 'FACTURA', $6, ${APP_TODAY}, 300, 0, 300, 'CONTADO', $4)`,
 		[
 			openVoucherId,
 			ids.entityId,
@@ -249,7 +260,7 @@ export async function insertVoucher(
 	await pool.query(
 		`insert into public.comprobante
 		   (id, entity_id, voucher_kind, voucher_type, voucher_number, issue_date, subtotal, igv, total, payment_type, owner_id)
-		 values ($1, $2, 'VENTA', 'FACTURA', $3, current_date, $4, 0, $4, 'CONTADO', $5)`,
+		 values ($1, $2, 'VENTA', 'FACTURA', $3, ${APP_TODAY}, $4, 0, $4, 'CONTADO', $5)`,
 		[id, input.entityId, input.voucherNumber, input.total, input.ownerId],
 	);
 
@@ -270,7 +281,7 @@ export async function insertPayment(
 	const result = await pool.query<{ id: string }>(
 		`insert into public.payment
 		   (owner_id, entity_id, direction, payment_date, amount, method_id, cash_account_id, category_id, reference, notes)
-		 values ($1, $2, 'INGRESO', coalesce($3::date, current_date), $4, $5, $6, $7, 'e2e', 'fixture e2e')
+		 values ($1, $2, 'INGRESO', coalesce($3::date, ${APP_TODAY}), $4, $5, $6, $7, 'e2e', 'fixture e2e')
 		 returning id`,
 		[
 			input.ownerId,

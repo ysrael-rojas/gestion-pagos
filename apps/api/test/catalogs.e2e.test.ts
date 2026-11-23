@@ -21,6 +21,7 @@ import { after, before, test } from "node:test";
 import type { Pool } from "pg";
 import type { ApiHarness } from "./support/harness.ts";
 import {
+	APP_TODAY,
 	deleteOwnerFixtures,
 	findSeededOwnerId,
 	grantDemoCredential,
@@ -298,7 +299,7 @@ test("GET /cash-accounts devuelve las cuentas propias con los campos que usa el 
 	// `cash_account_bank_requires_name`: una cuenta bancaria exige nombre de banco.
 	await pool.query(
 		`insert into public.cash_account (id, type, name, currency, bank_name, opening_balance, opening_balance_date, owner_id)
-		 values ($1, 'BANK_ACCOUNT', $2, 'USD', 'BCP', 0, current_date, $3)`,
+		 values ($1, 'BANK_ACCOUNT', $2, 'USD', 'BCP', 0, ${APP_TODAY}, $3)`,
 		[accountId, `E2E banco ${tag}`, second.ownerId],
 	);
 

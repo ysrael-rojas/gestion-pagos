@@ -1,4 +1,5 @@
-// Traduccion de errores de PostgreSQL a HTTP para las cuentas de caja y banco (C2).
+// Traduccion de errores de PostgreSQL a HTTP para el vertical de cajas y bancos (C2: cuentas;
+// C6: transferencias y caja chica).
 //
 // POR QUE NO SE REUSA `payments.errors.ts` NI `entities.errors.ts`: cada vertical redacta los
 // mensajes que ve su usuario final. `payments.errors.ts` mapea `23505` a "El comprobante ya esta
@@ -120,4 +121,211 @@ export function toCashHttpException(error: unknown): HttpException {
 /** Fila ausente o ya borrada: la escritura no encontro a quien apuntaba. */
 export function cashAccountNotFound(): NotFoundException {
 	return new NotFoundException("La cuenta no existe o fue eliminada.");
+}
+
+// ------------------------------------------------------------------------------------------
+// C6 — transferencias (`cash_transfer`) y caja chica (`petty_cash_vale`).
+//
+// POR QUE UNA TABLA DE MENSAJES Y NO UN SWITCH POR CODIGO: las cuatro RPC de este slice
+// (`create_cash_transfer`, `create_petty_cash_vale`, `replenish_petty_cash`,
+// `void_petty_cash_vale`) levantan `P0001` para TODAS sus reglas de negocio, con el mensaje ya
+// redactado para el usuario. Mapear `P0001` a un unico status (lo que hace `toCashHttpException`
+// para las cuentas) borraria la diferencia entre "la cuenta no existe" y "el monto debe ser mayor
+// a cero", que son cosas distintas para el cliente: la primera es 404 (la RLS ya la hace
+// invisible, igual que un id inexistente) y la segunda 400 (la peticion esta mal). El codigo de
+// PostgreSQL NUNCA decide solo: aporta la familia (excepcion de dominio, unique, check, permisos)
+// y el MENSAJE elige el status dentro de la familia.
+
+/**
+ * Status que este slice devuelve para un mensaje de negocio.
+ *
+ * 404 = el recurso no es visible para el dueno de la sesion (cuenta o vale inexistente o ajeno:
+ * la RLS no distingue los dos casos y el mensaje tampoco).
+ * 400 = la base rechazo una peticion que el usuario puede corregir.
+ */
+type CashMovementStatus = 404 | 400;
+
+/**
+ * Los mensajes de negocio del slice, textuales de las RPC.
+ *
+ * Los que llevan un valor interpolado (`%`) se anclan con una expresion regular en vez de
+ * comparar por igualdad: el limite del vale trae el monto y el limite (`El monto del vale (150.00)
+ * supera el limite por gasto de la caja chica (100.00)`) y la fecha del vale puede caer en un
+ * periodo cerrado. Comparar por igualdad dejaria esas ramas en el 400 generico.
+ *
+ * Los mensajes de `private.assert_account_open_for` estan porque las dos RPC de alta los
+ * propagan: la cuenta cerrada hasta una fecha y la fecha anterior al saldo inicial se rechazan
+ * igual que cualquier otra regla, con el texto de la base.
+ */
+const MOVEMENT_DOMAIN_RULES: ReadonlyArray<{ pattern: RegExp; status: CashMovementStatus }> = [
+	// create_cash_transfer
+	{ pattern: /^La cuenta de origen no existe$/, status: 404 },
+	{ pattern: /^La cuenta de destino no existe$/, status: 404 },
+	{ pattern: /^Origen y destino deben ser cuentas distintas$/, status: 400 },
+	{ pattern: /^Solo se permiten transferencias entre cuentas en PEN$/, status: 400 },
+	{ pattern: /^El monto debe ser mayor a cero$/, status: 400 },
+	// create_petty_cash_vale / replenish_petty_cash
+	{ pattern: /^La cuenta de caja chica no existe$/, status: 404 },
+	{ pattern: /^La cuenta no está marcada como caja chica$/, status: 400 },
+	{ pattern: /^El monto del vale debe ser mayor a cero$/, status: 400 },
+	{
+		pattern: /^El monto del vale \(.+\) supera el límite por gasto de la caja chica \(.+\)$/,
+		status: 400,
+	},
+	{ pattern: /^Indica a quién se pagó el vale$/, status: 400 },
+	{ pattern: /^Indica el concepto del vale$/, status: 400 },
+	{ pattern: /^Selecciona la categoría del gasto del vale$/, status: 400 },
+	{ pattern: /^La categoría del vale no es válida$/, status: 400 },
+	{ pattern: /^No existe el método de pago Efectivo para esta cuenta$/, status: 400 },
+	// replenish_petty_cash
+	{ pattern: /^Selecciona al menos un vale para reponer$/, status: 400 },
+	{
+		pattern: /^Algún vale no existe, no pertenece a la caja chica o no está pendiente$/,
+		status: 400,
+	},
+	{ pattern: /^El total de los vales debe ser mayor a cero$/, status: 400 },
+	// void_petty_cash_vale
+	{ pattern: /^El vale no existe$/, status: 404 },
+	{ pattern: /^Solo se pueden anular vales pendientes$/, status: 400 },
+	// private.assert_account_open_for, que llaman las dos RPC de alta
+	{ pattern: /^La cuenta no existe$/, status: 404 },
+	{
+		pattern: /^La fecha del recibo \(.+\) es anterior al saldo inicial de la cuenta \(.+\)\.$/,
+		status: 400,
+	},
+	{
+		pattern:
+			/^La cuenta ya fue cerrada hasta .+\. No se pueden registrar ni modificar recibos con fecha anterior o igual\.$/,
+		status: 400,
+	},
+];
+
+/**
+ * Mensaje de `23505` sobre `unique (account_id, serial)`.
+ *
+ * Inalcanzable por estas rutas: `create_petty_cash_vale` bloquea la cuenta con `for update` y
+ * calcula `serial = max(serial) + 1` dentro del mismo bloqueo (S5), asi que dos vales
+ * concurrentes se serializan y el segundo recibe el numero siguiente. Se traduce igual para no
+ * filtrar un texto de la base si la carrera alguna vez cambia de forma.
+ */
+export const DUPLICATE_VALE_MESSAGE = "Ya existe un vale con ese número en la cuenta.";
+
+/**
+ * `23505` en una tabla sin otro indice unico que la PK. Hoy es inalcanzable (la PK la genera la
+ * base y `cash_transfer` no tiene indices unicos de negocio); mismo criterio que el anterior.
+ */
+export const DUPLICATE_MOVEMENT_MESSAGE = "Ya existe un registro con esos datos.";
+
+/**
+ * `23514` sin constraint reconocida. Textual del origen (`lib/caja/transferencias.ts:26-28` y
+ * `lib/caja/caja-chica.ts:31-33`, `mapError`).
+ *
+ * Inalcanzable por estas rutas: los dos CHECK de `cash_transfer` (monto > 0, cuentas distintas) y
+ * los tres de `petty_cash_vale` (monto > 0, serial > 0, serial unico) los revalida la RPC antes de
+ * insertar, con su propio mensaje de dominio.
+ */
+export const INVALID_MOVEMENT_DATA_MESSAGE = "Los datos no cumplen las reglas de validación.";
+
+/** `23503`: una FK que no resuelve. Textual del origen, mismo texto que los cierres. */
+export const MISSING_REFERENCE_MESSAGE = "La cuenta referenciada no existe.";
+
+/**
+ * `42501` del trigger `private.assert_owner_consistency`.
+ *
+ * Inalcanzable por el API: las RPC validan la pertenencia ANTES de insertar (y con el mismo texto
+ * para "no existe" y "es de otro", para no filtrar la existencia de cuentas ajenas), y la RLS de
+ * las dos tablas solo permite SELECT. Se conserva el mapeo porque el trigger existe y porque el
+ * mensaje de la base es el que el usuario debe ver si algun dia la escritura directa vuelve a ser
+ * posible.
+ */
+const FOREIGN_OWNER_PATTERN = /^La transferencia referencia una cuenta de otro usuario$/;
+
+/**
+ * Textos de `42501` que SI se le pueden mostrar al usuario.
+ *
+ * En cualquier otro caso el `42501` viene de un privilegio o de una politica RLS y su texto
+ * nombra tablas y sentencias: se reemplaza por el mensaje de sesion, que es lo que hacia
+ * `toCashHttpException` antes de este slice.
+ */
+const SESSION_PERMISSION_MESSAGE =
+	"No tienes permisos para esta operación. Cierra sesión y vuelve a entrar.";
+
+/** Texto de un `42501`: el de la base si es de dominio, el de sesion si es un grant/RLS. */
+function privilegeMessageOf(message: string): string {
+	if (isPrivilegeDenial(message) || message === "") {
+		return SESSION_PERMISSION_MESSAGE;
+	}
+
+	return FOREIGN_OWNER_PATTERN.test(message) ? message : SESSION_PERMISSION_MESSAGE;
+}
+
+/** Status de un mensaje de negocio, o `null` si el mensaje no es de este slice. */
+function movementStatusOf(message: string): CashMovementStatus | null {
+	for (const rule of MOVEMENT_DOMAIN_RULES) {
+		if (rule.pattern.test(message)) {
+			return rule.status;
+		}
+	}
+
+	return null;
+}
+
+/** La excepcion concreta de Nest que corresponde al status (misma forma de body que C2). */
+function movementException(status: CashMovementStatus, message: string): HttpException {
+	return status === 404 ? new NotFoundException(message) : new BadRequestException(message);
+}
+
+/**
+ * Convierte el error de una RPC o de una lectura de transferencias / vales en la excepcion HTTP
+ * correspondiente.
+ *
+ * El mensaje de la base viaja TAL CUAL: es el que el usuario ve (mismo criterio que
+ * `closes.service.ts` y `payments.errors.ts`). Un `P0001` que no este en la tabla cae en 400 con
+ * su texto: una regla nueva de la RPC se muestra al usuario en vez de convertirse en un 500.
+ */
+export function toCashMovementHttpException(error: unknown): HttpException {
+	if (error instanceof HttpException) {
+		return error;
+	}
+
+	const postgres = normalizePostgresError(error);
+
+	if (!postgres?.code) {
+		return new InternalServerErrorException(GENERIC);
+	}
+
+	const message = postgres.message ?? "";
+	const known = movementStatusOf(message);
+
+	switch (postgres.code) {
+		case "P0001":
+			// Excepcion de dominio de PL/pgSQL: el mensaje ya esta redactado y el status lo elige
+			// la tabla de arriba (400 cuando el mensaje es nuevo y nadie lo clasifico todavia).
+			return movementException(known ?? 400, message || GENERIC);
+		case "42501":
+			// Trigger de consistencia de dueno o privilegio/RLS: el mensaje decide, no el codigo.
+			return new ForbiddenException(privilegeMessageOf(message));
+		case "23505":
+			return new ConflictException(
+				postgres.constraint === "petty_cash_vale_serial_unique"
+					? DUPLICATE_VALE_MESSAGE
+					: DUPLICATE_MOVEMENT_MESSAGE,
+			);
+		case "23514":
+			return new BadRequestException(INVALID_MOVEMENT_DATA_MESSAGE);
+		case "23503":
+			return new BadRequestException(MISSING_REFERENCE_MESSAGE);
+		default:
+			return new InternalServerErrorException(GENERIC);
+	}
+}
+
+/** La transferencia no existe o es de otro dueno: la RLS ya la hace invisible. */
+export function cashTransferNotFound(): NotFoundException {
+	return new NotFoundException("La transferencia no existe.");
+}
+
+/** El vale no existe o es de otro dueno: mismo criterio que la transferencia. */
+export function pettyCashValeNotFound(): NotFoundException {
+	return new NotFoundException("El vale no existe.");
 }

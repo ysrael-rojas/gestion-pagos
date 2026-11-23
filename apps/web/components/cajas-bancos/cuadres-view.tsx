@@ -1,0 +1,610 @@
+"use client";
+
+// Cuadres de caja: saldo a hoy, periodo sugerido, cierre, arqueos y reporte (C5 del vertical de
+// cajas-bancos).
+//
+// Port de `components/cajas-bancos/cuadres-view.tsx` del origen (664 lineas). La pantalla tiene tres
+// tarjetas arriba (saldo a hoy, ultimo cierre, periodo sugerido con sus dos acciones), el historial
+// de cierres, los arqueos sorpresivos y el reporte del cierre elegido con su acta imprimible.
+//
+// EL CIERRE ES IRREVERSIBLE (S4): esta pantalla solo puede CREAR cierres y leerlos. No hay accion de
+// edicion ni de borrado de un cierre porque no hay endpoint que las haga (`close_cash_account` no
+// tiene inversa) y porque el periodo ya bloqueado no debe reabrirse desde una tabla.
+//
+// QUE NO SE PORTA Y POR QUE (C6):
+//
+//   - Las transferencias del periodo (`listAccountTransfers`): `GET /cash-transfers` no esta
+//     expuesto. Su columna en la tabla de movimientos y el total "Transferencias" del cierre no se
+//     pierden: los dos totales los escribio la RPC y el acta los imprime.
+//   - "Marcar verificado" sobre los recibos en revision y el modal de cargos bancarios
+//     (`bank-charge-modal.tsx`, que registra un egreso via `POST /payments`). Son acciones del
+//     slice de extractos/conciliacion y su componente no existe en este repo.
+//
+// DESVIO DELIBERADO: las lecturas del cuadre ya no se piden desde la pantalla. `loadCuadre`,
+// `loadCloseDetail` y `loadStatement` del provider concentran las cinco lecturas por cuenta y las
+// dos del cierre elegido, con el mismo reparto en paralelo que tenia `fetchAccount` en el origen.
+// La tolerancia tampoco se pide aca: la lee el modal del provider.
+//
+// DESVIO DELIBERADO (por el API): `getCashClose(id)` devuelve el cierre CON su arqueo
+// (`CashCloseDetail.denominations`), asi que el efecto del periodo ya no pide el detalle por
+// separado: la tabla de cierres usa la fila de `GET /cash-closes`, que no trae denominaciones.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  createColumnHelper,
+  createPaginatedRowModel,
+  createSortedRowModel,
+  rowPaginationFeature,
+  rowSortingFeature,
+  sortFn_alphanumeric,
+  sortFn_text,
+  tableFeatures,
+  useTable,
+  type SortingState,
+} from "@tanstack/react-table";
+import { toast } from "sonner";
+import { ArrowUpDown } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { DataTablePagination } from "@/components/shared/data-table-pagination";
+import { useCajasBancos } from "@/components/cajas-bancos/cajas-bancos-provider";
+import { CashCloseModal } from "@/components/cajas-bancos/cash-close-modal";
+import { CashCountModal } from "@/components/cajas-bancos/cash-count-modal";
+import { CashCountsTable } from "@/components/cajas-bancos/cash-counts-table";
+import { CuadreReport } from "@/components/cajas-bancos/cuadre-report";
+import type { CashCloseFormValues, CashCountFormValues } from "@gestion/shared";
+import { formatCurrency, formatDate, getTodayLocalDate } from "@gestion/shared";
+import { getPeriodicityLabel } from "@gestion/shared/lib/data/cash-options.ts";
+import type {
+  CashCloseRecord,
+  CashCountRecord,
+  CloseDenomination,
+  Payment,
+} from "@/lib/api/client";
+import type { CashAccountRecord } from "@/lib/cuentas/entidades";
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "Ocurrió un error inesperado. Intenta nuevamente.";
+}
+
+function formatAmount(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("es-PE", {
+      style: "currency",
+      currency: currency || "PEN",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return formatCurrency(value);
+  }
+}
+
+const closesTableFeatures = tableFeatures({
+  rowSortingFeature,
+  rowPaginationFeature,
+  sortedRowModel: createSortedRowModel(),
+  paginatedRowModel: createPaginatedRowModel(),
+  sortFns: { alphanumeric: sortFn_alphanumeric, text: sortFn_text },
+});
+
+const closeColumnHelper = createColumnHelper<
+  typeof closesTableFeatures,
+  CashCloseRecord
+>();
+
+interface CashClosesTableProps {
+  closes: CashCloseRecord[];
+  isLoading: boolean;
+  account: CashAccountRecord | null;
+  onView: (close: CashCloseRecord) => void;
+}
+
+function CashClosesTable({
+  closes,
+  isLoading,
+  account,
+  onView,
+}: CashClosesTableProps) {
+  const [sorting, setSorting] = useState<SortingState>([]);
+
+  const columns = useMemo(
+    () =>
+      closeColumnHelper.columns([
+        closeColumnHelper.accessor("periodStart", {
+          id: "period",
+          header: ({ column }) => (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Período
+              <ArrowUpDown />
+            </Button>
+          ),
+          cell: ({ row }) =>
+            `${formatDate(row.original.periodStart)} — ${formatDate(
+              row.original.periodEnd,
+            )}`,
+        }),
+        closeColumnHelper.accessor("periodicity", {
+          header: () => <span>Periodicidad</span>,
+          cell: ({ getValue }) => getPeriodicityLabel(getValue()),
+        }),
+        closeColumnHelper.accessor("expectedBalance", {
+          header: ({ column }) => (
+            <div className="text-right">
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  column.toggleSorting(column.getIsSorted() === "asc")
+                }
+              >
+                Esperado
+                <ArrowUpDown />
+              </Button>
+            </div>
+          ),
+          cell: ({ getValue }) => (
+            <div className="text-right">
+              {account
+                ? formatAmount(getValue(), account.currency)
+                : getValue()}
+            </div>
+          ),
+        }),
+        closeColumnHelper.accessor("countedBalance", {
+          header: () => <div className="text-right">Conteo</div>,
+          cell: ({ getValue }) => {
+            const value = getValue();
+            return (
+              <div className="text-right">
+                {value !== null
+                  ? account
+                    ? formatAmount(value, account.currency)
+                    : value
+                  : "—"}
+              </div>
+            );
+          },
+        }),
+        closeColumnHelper.accessor("difference", {
+          header: () => <div className="text-right">Diferencia</div>,
+          cell: ({ getValue }) => {
+            const value = getValue();
+            return (
+              <div className="text-right">
+                {value !== null
+                  ? account
+                    ? formatAmount(value, account.currency)
+                    : value
+                  : "—"}
+              </div>
+            );
+          },
+        }),
+        closeColumnHelper.display({
+          id: "actions",
+          header: () => <div className="text-right">Acciones</div>,
+          cell: ({ row }) => (
+            <div className="text-right">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onView(row.original)}
+              >
+                Ver reporte
+              </Button>
+            </div>
+          ),
+        }),
+      ]),
+    [account, onView],
+  );
+
+  const table = useTable({
+    features: closesTableFeatures,
+    data: closes,
+    columns,
+    onSortingChange: setSorting,
+    state: { sorting },
+    initialState: {
+      pagination: {
+        pageIndex: 0,
+        pageSize: 10,
+      },
+    },
+  });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="overflow-hidden rounded-md border">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.isPlaceholder ? null : (
+                      <table.FlexRender header={header} />
+                    )}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              Array.from({ length: 3 }).map((_, index) => (
+                <TableRow key={`skeleton-${index}`}>
+                  {Array.from({ length: columns.length }).map((_, cell) => (
+                    <TableCell key={`skeleton-${index}-${cell}`}>
+                      <Skeleton className="h-5 w-full" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : table.getRowModel().rows.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="text-center text-sm text-muted-foreground"
+                >
+                  Aún no hay cierres para esta cuenta.
+                </TableCell>
+              </TableRow>
+            ) : (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getAllCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      <table.FlexRender cell={cell} />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <DataTablePagination table={table} />
+    </div>
+  );
+}
+
+export function CuadresView() {
+  const {
+    accounts,
+    loadCuadre,
+    loadCloseDetail,
+    loadStatement,
+    loadCounts,
+    closeAccount,
+    registerCount,
+  } = useCajasBancos();
+  const today = getTodayLocalDate();
+
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
+  const [position, setPosition] = useState<number | null>(null);
+  const [lastClose, setLastClose] = useState<CashCloseRecord | null>(null);
+  const [proposed, setProposed] = useState<{
+    periodStart: string;
+    periodEnd: string;
+  } | null>(null);
+  const [closes, setCloses] = useState<CashCloseRecord[]>([]);
+  const [counts, setCounts] = useState<CashCountRecord[]>([]);
+  const [selectedClose, setSelectedClose] = useState<CashCloseRecord | null>(
+    null,
+  );
+  const [statement, setStatement] = useState<Payment[]>([]);
+  const [denominations, setDenominations] = useState<CloseDenomination[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [countModalOpen, setCountModalOpen] = useState(false);
+  const [isSavingCount, setIsSavingCount] = useState(false);
+
+  // Derivado: si el usuario no eligió cuenta, se usa la primera.
+  const accountId = selectedAccountId || accounts[0]?.id || "";
+  const account = accounts.find((item) => item.id === accountId) ?? null;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!account) {
+      return;
+    }
+
+    void (async () => {
+      setIsLoading(true);
+
+      try {
+        const state = await loadCuadre(account, today);
+
+        if (isMounted) {
+          setPosition(state.position);
+          setLastClose(state.lastClose);
+          setProposed(state.proposed);
+          setCloses(state.closes);
+          setCounts(state.counts);
+          setSelectedClose(state.closes[0] ?? null);
+        }
+      } catch (error) {
+        if (isMounted) {
+          toast.error(getErrorMessage(error));
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [account, today, loadCuadre]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void (async () => {
+      if (!accountId || !selectedClose) {
+        if (isMounted) {
+          setStatement([]);
+          setDenominations([]);
+        }
+        return;
+      }
+
+      try {
+        const [data, detail] = await Promise.all([
+          loadStatement(
+            accountId,
+            selectedClose.periodStart,
+            selectedClose.periodEnd,
+          ),
+          loadCloseDetail(selectedClose.id),
+        ]);
+        if (isMounted) {
+          setStatement(data);
+          setDenominations(detail.denominations);
+        }
+      } catch (error) {
+        if (isMounted) {
+          toast.error(getErrorMessage(error));
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [accountId, selectedClose, loadStatement, loadCloseDetail]);
+
+  const refreshCuadre = useCallback(
+    async (target: CashAccountRecord) => {
+      const state = await loadCuadre(target, today);
+      setPosition(state.position);
+      setLastClose(state.lastClose);
+      setProposed(state.proposed);
+      setCloses(state.closes);
+      setCounts(state.counts);
+
+      return state;
+    },
+    [loadCuadre, today],
+  );
+
+  async function handleClose(values: CashCloseFormValues) {
+    setIsClosing(true);
+    try {
+      const created = await closeAccount(values);
+      if (account) {
+        await refreshCuadre(account);
+      }
+      setSelectedClose(created);
+      setModalOpen(false);
+      toast.success("Caja cerrada");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsClosing(false);
+    }
+  }
+
+  async function handleCreateCount(values: CashCountFormValues) {
+    setIsSavingCount(true);
+    try {
+      const created = await registerCount(values);
+      setCounts(await loadCounts(values.accountId));
+      setCountModalOpen(false);
+      toast.success(
+        created.difference === 0
+          ? "Arqueo registrado: cuadrado"
+          : `Arqueo registrado: ${
+              created.difference < 0 ? "faltante" : "sobrante"
+            } de ${formatCurrency(Math.abs(created.difference))}`,
+      );
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsSavingCount(false);
+    }
+  }
+
+  return (
+    <div className="container mx-auto flex flex-col gap-6 p-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Cuadres de caja</h1>
+        <p className="text-sm text-muted-foreground">
+          Aperturas, cierres y flujo de efectivo por cuenta.
+        </p>
+      </div>
+
+      {accounts.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Registra una caja o banco en Configuración para empezar.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-col gap-1.5 sm:max-w-sm">
+            <label className="text-sm font-medium" htmlFor="accountId">
+              Cuenta
+            </label>
+            <Select
+              value={accountId}
+              items={accounts.map((item) => ({
+                value: item.id,
+                label: `${item.name} · ${item.currency}`,
+              }))}
+              onValueChange={(value) => setSelectedAccountId(value ?? "")}
+            >
+              <SelectTrigger id="accountId" className="w-full">
+                <SelectValue placeholder="Selecciona una cuenta" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name} · {item.currency}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Card className="bg-muted/30 ring-0">
+              <CardHeader>
+                <CardTitle className="text-sm">Saldo a hoy</CardTitle>
+              </CardHeader>
+              <CardContent className="text-xl font-semibold">
+                {isLoading || position === null || !account ? (
+                  <Skeleton className="h-6 w-32" />
+                ) : (
+                  formatAmount(position, account.currency)
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-muted/30 ring-0">
+              <CardHeader>
+                <CardTitle className="text-sm">Último cierre</CardTitle>
+              </CardHeader>
+              <CardContent className="text-xl font-semibold">
+                {isLoading ? (
+                  <Skeleton className="h-6 w-32" />
+                ) : lastClose ? (
+                  formatDate(lastClose.periodEnd)
+                ) : (
+                  "Sin cierres"
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-muted/30 ring-0">
+              <CardHeader>
+                <CardTitle className="text-sm">Período sugerido</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {isLoading || !proposed ? (
+                  <Skeleton className="h-6 w-40" />
+                ) : (
+                  <span className="text-sm">
+                    {formatDate(proposed.periodStart)} —{" "}
+                    {formatDate(proposed.periodEnd)}
+                  </span>
+                )}
+                <Button
+                  onClick={() => setModalOpen(true)}
+                  disabled={isLoading || !account || !proposed}
+                >
+                  Cerrar caja
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setCountModalOpen(true)}
+                  disabled={isLoading || !account}
+                >
+                  Arqueo sorpresivo
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">Historial de cierres</h2>
+            <CashClosesTable
+              closes={closes}
+              isLoading={isLoading}
+              account={account}
+              onView={setSelectedClose}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">Arqueos sorpresivos</h2>
+            <CashCountsTable
+              counts={counts}
+              currency={account?.currency === "USD" ? "USD" : "PEN"}
+              isLoading={isLoading}
+            />
+          </div>
+
+          {selectedClose && account ? (
+            <CuadreReport
+              close={selectedClose}
+              statement={statement}
+              accountName={account.name}
+              currency={account.currency}
+              accountType={account.type}
+              denominations={denominations}
+              changeFund={account.changeFund}
+            />
+          ) : null}
+
+          <CashCloseModal
+            open={modalOpen}
+            onOpenChange={setModalOpen}
+            account={account}
+            defaultPeriod={proposed ?? { periodStart: today, periodEnd: today }}
+            onClose={(values) => void handleClose(values)}
+            isSaving={isClosing}
+          />
+
+          <CashCountModal
+            open={countModalOpen}
+            onOpenChange={setCountModalOpen}
+            account={account}
+            onDone={(values) => void handleCreateCount(values)}
+            isSaving={isSavingCount}
+          />
+        </>
+      )}
+    </div>
+  );
+}

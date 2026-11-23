@@ -61,7 +61,8 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
   Specs: S2, S3, S4, S5. Ruta: worker + verificación independiente. **Hecho**: 10/10 del e2e nuevo,
   `payments` 18/18 y catálogos 6/6 verdes, commit: _(pendiente)_.
 - C5 — Pantallas base: provider con escritura, listado, cuentas, cuadres, acta y reporte impresos.
-  Specs: S1, S4. Ruta: pendiente. Commit: _(pendiente)_.
+  Specs: S1, S4. Ruta: worker. **Hecho**: 24 archivos, 26 tests unitarios nuevos verdes, typecheck
+  verde. Commit: _(pendiente)_.
 - C6 — Transferencias, caja chica y extractos.
   Specs: S5, S8. Ruta: pendiente. Commit: _(pendiente)_.
 - C7 — Conciliación, configuración y dashboard/proyección.
@@ -81,6 +82,13 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   slice es grande y el documento de la feature entra en el mismo commit; la implementación sola
   son ~240 líneas en 5 archivos. Revisar `settings.service.ts` (semántica del ensure) y
   `settings.types.ts` (los tres valores sembrados).
+
+- **Slice 3 — `20dd805`** `feat(api)`: cierres y arqueos (12/12). El e2e es el archivo más grande
+  del slice: la prueba de que el guard vive en SQL son dos llamadas directas a la RPC en paralelo.
+- **Slice 4 — C5** `feat(web)`: pantallas base (24 archivos, ~5.400 líneas de diff, casi todo código
+  portado literal del origen; lo autorado de cero son los 4 helpers y sus 26 tests). **Es el slice
+  más grande del vertical** y conviene revisarlo por pantalla, no por archivo: listado+cuentas,
+  cuadres+cierre/arqueo, y acta/reporte impresos.
 
 ## Log
 
@@ -111,6 +119,17 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   tabla no tiene FK a `auth.users`, así que cada test limpia las suyas; C8 lo lleva al teardown
   común. El barrel `apps/api/src/db/schema/index.ts` no se tocó: el servicio importa el schema
   directo (una línea de seguimiento si se quiere consistencia).
+- **L13 — C5: deuda de rendimiento que dejó el port.** `GET /cash-accounts` devuelve 5 columnas
+  (contrato del formulario de pagos) y la tabla de cuentas necesita la fila completa, así que el
+  provider hidrata con un `GET /cash-accounts/:id` por cuenta (N+1). Se paga al montar el layout,
+  no en cada navegación, y con las cuentas que tiene una MYPE es tolerable; la salida limpia es un
+  `GET /cash-accounts?full=1` aditivo en el API, que hoy no existe. Sin medir no lo llamo problema,
+  pero queda anotado con nombre y archivo.
+- **L14 — C5: lo que NO se pudo probar.** Ningún componente se renderizó en un navegador: los
+  server/Playwright están prohibidos en los slices de UI por el cuelgue del worker. Eso significa
+  que las tres pantallas y los modales están probados por tipos y por los helpers puros, **no por
+  comportamiento**. La prueba real es el spec 09 de C8, y hasta entonces la UI de este slice es
+  código verificado a medias: no se declara funcionando.
 - **L12 — C4: tres correcciones y una desviación de proceso.** (a) S3 describía mal el mecanismo
   (ver arriba): el INSERT directo lo bloquea la RLS, no los grants. (b) El body de cierre se arma
   con `z.object(cashCloseSchema.shape)` a propósito: el `superRefine` del schema compartido rechaza

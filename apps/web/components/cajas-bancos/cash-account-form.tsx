@@ -1,0 +1,477 @@
+"use client";
+
+// Formulario de cuenta de caja o banco (C5 del vertical de cajas-bancos).
+//
+// Port de `components/cajas-bancos/cash-account-form.tsx` del origen (462 lineas) sin cambios de
+// comportamiento: las dieciseis columnas, el bloque de datos bancarios que solo aparece en un
+// banco, el de caja chica que solo aparece en una caja, y el reset cada vez que el modal se abre.
+//
+// Lo que sigue viviendo en `@gestion/shared` es lo que el origen tenia duplicado entre la web y el
+// borde del API: `cashAccountFormSchema` (con sus reglas por tipo: un banco sin nombre de banco,
+// una caja con CCI, un banco con caja chica) y el catalogo de periodicidades. La validacion del
+// cliente no reemplaza a la de la base: el CHECK `cash_account_bank_requires_name` y las reglas de
+// `apps/api` siguen siendo la ultima palabra.
+//
+// `type` arranca vacio a proposito ("Seleccionar") y el modal deshabilita el boton de guardar
+// mientras no se elija: es una cuenta de caja o de banco, y elegir por el usuario cambia el
+// formulario que ve.
+import { useEffect } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
+import {
+  cashAccountFormSchema,
+  getTodayLocalDate,
+  type CashAccountFormInput,
+  type CashAccountFormValues,
+  type CashAccountType,
+} from "@gestion/shared";
+import { CLOSING_PERIODICITY_OPTIONS } from "@gestion/shared/lib/data/cash-options.ts";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import type { CashAccountRecord } from "@/lib/cuentas/entidades";
+
+interface CashAccountFormProps {
+  account?: CashAccountRecord | null;
+  defaultType?: CashAccountType;
+  /**
+   * Instancia externa (p. ej. creada por `CashAccountModal` para conocer el
+   * tipo elegido). Si no se pasa, el componente gestiona su propio formulario.
+   */
+  form?: CashAccountFormInstance;
+  onSubmit: (values: CashAccountFormValues) => void;
+}
+
+export const CASH_ACCOUNT_FORM_ID = "cash-account-form";
+
+const TYPE_OPTIONS: { value: CashAccountType; label: string }[] = [
+  { value: "CASH_BOX", label: "Caja (efectivo)" },
+  { value: "BANK_ACCOUNT", label: "Banco (cuenta)" },
+];
+
+function createEmptyValues(defaultType?: CashAccountType): CashAccountFormInput {
+  return {
+    // Sin tipo preseleccionado: el select inicia en "Seleccionar".
+    type: defaultType,
+    name: "",
+    currency: "PEN",
+    bankName: "",
+    accountNumber: "",
+    cci: "",
+    closingPeriodicity: "",
+    openingBalance: 0,
+    openingBalanceDate: getTodayLocalDate(),
+    notes: "",
+    isActive: true,
+    isPettyCash: false,
+    changeFund: 0,
+    pettyExpenseLimit: "",
+    custodianName: "",
+  };
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <p role="alert" className="text-sm text-destructive">
+      {message}
+    </p>
+  );
+}
+
+function FormGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="bg-muted/30 ring-0">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface UseCashAccountFormOptions {
+  /**
+   * Visibilidad del modal: el formulario se resetea cada vez que se abre,
+   * para no arrastrar valores de una sesión anterior.
+   */
+  open?: boolean;
+  account?: CashAccountRecord | null;
+  defaultType?: CashAccountType;
+}
+
+export function useCashAccountForm({
+  open = true,
+  account,
+  defaultType,
+}: UseCashAccountFormOptions = {}) {
+  const form = useForm<CashAccountFormInput, unknown, CashAccountFormValues>({
+    resolver: zodResolver(cashAccountFormSchema),
+    defaultValues: createEmptyValues(defaultType),
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    if (account) {
+      form.reset({
+        type: account.type,
+        name: account.name,
+        currency: account.currency,
+        bankName: account.bankName ?? "",
+        accountNumber: account.accountNumber ?? "",
+        cci: account.cci ?? "",
+        closingPeriodicity: account.closingPeriodicity ?? "",
+        openingBalance: account.openingBalance,
+        openingBalanceDate: account.openingBalanceDate,
+        notes: account.notes ?? "",
+        isActive: account.isActive,
+        isPettyCash: account.isPettyCash,
+        changeFund: account.changeFund,
+        pettyExpenseLimit: account.pettyExpenseLimit ?? "",
+        custodianName: account.custodianName ?? "",
+      });
+    } else {
+      form.reset(createEmptyValues(defaultType));
+    }
+  }, [open, account, defaultType, form]);
+
+  return form;
+}
+
+export type CashAccountFormInstance = ReturnType<typeof useCashAccountForm>;
+
+interface CashAccountFormFieldsProps {
+  form: CashAccountFormInstance;
+  onSubmit: (values: CashAccountFormValues) => void;
+}
+
+function CashAccountFormFields({ form, onSubmit }: CashAccountFormFieldsProps) {
+  const type = useWatch({ control: form.control, name: "type" });
+  const isBank = type === "BANK_ACCOUNT";
+  const isPettyCash = useWatch({ control: form.control, name: "isPettyCash" });
+  const errors = form.formState.errors;
+
+  return (
+    <form
+      id={CASH_ACCOUNT_FORM_ID}
+      onSubmit={form.handleSubmit(onSubmit)}
+      className="flex flex-col gap-6"
+    >
+      <FormGroup title="Datos básicos">
+        <Controller
+          control={form.control}
+          name="type"
+          render={({ field }) => (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="type">Tipo de cuenta</Label>
+              <Select
+                value={field.value ?? null}
+                items={TYPE_OPTIONS}
+                onValueChange={(value) => {
+                  if (value === null) return;
+                  field.onChange(value as CashAccountType);
+                  if (value === "CASH_BOX") {
+                    form.setValue("bankName", "");
+                    form.setValue("accountNumber", "");
+                    form.setValue("cci", "");
+                  } else {
+                    // Un banco no tiene caja chica ni fondo de cambio.
+                    form.setValue("isPettyCash", false);
+                    form.setValue("changeFund", 0);
+                    form.setValue("pettyExpenseLimit", "");
+                    form.setValue("custodianName", "");
+                  }
+                }}
+              >
+                <SelectTrigger id="type" className="w-full">
+                  <SelectValue placeholder="Seleccionar" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError message={errors.type?.message} />
+            </div>
+          )}
+        />
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="currency">Moneda</Label>
+          <Input
+            id="currency"
+            placeholder="PEN"
+            maxLength={8}
+            aria-invalid={!!errors.currency}
+            {...form.register("currency")}
+          />
+          <FieldError message={errors.currency?.message} />
+        </div>
+
+        <Controller
+          control={form.control}
+          name="closingPeriodicity"
+          render={({ field }) => (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="closingPeriodicity">Periodicidad de cierre</Label>
+              <Select
+                value={field.value ? field.value : "DEFAULT"}
+                items={CLOSING_PERIODICITY_OPTIONS}
+                onValueChange={(value) =>
+                  field.onChange(value === "DEFAULT" ? "" : (value ?? ""))
+                }
+              >
+                <SelectTrigger id="closingPeriodicity" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CLOSING_PERIODICITY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError message={errors.closingPeriodicity?.message} />
+            </div>
+          )}
+        />
+
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <Label htmlFor="name">Nombre</Label>
+          <Input
+            id="name"
+            placeholder="Ej. Caja principal, Cuenta BCP soles"
+            aria-invalid={!!errors.name}
+            {...form.register("name")}
+          />
+          <FieldError message={errors.name?.message} />
+        </div>
+      </FormGroup>
+
+      {isBank ? (
+        <FormGroup title="Datos bancarios">
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <Label htmlFor="bankName">Banco</Label>
+            <Input
+              id="bankName"
+              placeholder="Ej. BCP, Interbank, BBVA"
+              aria-invalid={!!errors.bankName}
+              {...form.register("bankName")}
+            />
+            <FieldError message={errors.bankName?.message} />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="accountNumber">Nro de cuenta</Label>
+            <Input
+              id="accountNumber"
+              placeholder="000-1234567-89"
+              aria-invalid={!!errors.accountNumber}
+              {...form.register("accountNumber")}
+            />
+            <FieldError message={errors.accountNumber?.message} />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="cci">CCI</Label>
+            <Input
+              id="cci"
+              placeholder="20 dígitos"
+              maxLength={20}
+              aria-invalid={!!errors.cci}
+              {...form.register("cci")}
+            />
+            <FieldError message={errors.cci?.message} />
+          </div>
+        </FormGroup>
+      ) : null}
+
+      {type === "CASH_BOX" ? (
+        <FormGroup title="Caja chica">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="changeFund">Fondo de cambio (S/)</Label>
+            <Input
+              id="changeFund"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              aria-invalid={!!errors.changeFund}
+              {...form.register("changeFund")}
+            />
+            <FieldError message={errors.changeFund?.message} />
+            <p className="text-xs text-muted-foreground">
+              Base fija para dar vueltos. En el arqueo se resta del total
+              contado para obtener el efectivo neto.
+            </p>
+          </div>
+
+          <Controller
+            control={form.control}
+            name="isPettyCash"
+            render={({ field }) => (
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="isPettyCash"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+                <div className="flex flex-col gap-0.5">
+                  <Label htmlFor="isPettyCash">Es caja chica</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Fondo fijo para gastos menores, con vales prenumerados y
+                    reposición.
+                  </p>
+                </div>
+              </div>
+            )}
+          />
+
+          {isPettyCash ? (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="pettyExpenseLimit">Límite por gasto (S/)</Label>
+                <Input
+                  id="pettyExpenseLimit"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Sin límite"
+                  aria-invalid={!!errors.pettyExpenseLimit}
+                  {...form.register("pettyExpenseLimit")}
+                />
+                <FieldError message={errors.pettyExpenseLimit?.message} />
+                <p className="text-xs text-muted-foreground">
+                  Un vale por encima de este monto se rechaza.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="custodianName">Custodio</Label>
+                <Input
+                  id="custodianName"
+                  placeholder="Responsable del fondo"
+                  maxLength={100}
+                  aria-invalid={!!errors.custodianName}
+                  {...form.register("custodianName")}
+                />
+                <FieldError message={errors.custodianName?.message} />
+              </div>
+            </>
+          ) : null}
+        </FormGroup>
+      ) : null}
+
+      <FormGroup title="Saldo inicial y notas">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="openingBalance">Saldo inicial</Label>
+          <Input
+            id="openingBalance"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="0.00"
+            aria-invalid={!!errors.openingBalance}
+            {...form.register("openingBalance", { valueAsNumber: true })}
+          />
+          <FieldError message={errors.openingBalance?.message} />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="openingBalanceDate">Fecha de apertura</Label>
+          <Input
+            id="openingBalanceDate"
+            type="date"
+            aria-invalid={!!errors.openingBalanceDate}
+            {...form.register("openingBalanceDate")}
+          />
+          <FieldError message={errors.openingBalanceDate?.message} />
+        </div>
+
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <Label htmlFor="notes">Notas</Label>
+          <Textarea
+            id="notes"
+            placeholder="Observaciones (opcional)"
+            aria-invalid={!!errors.notes}
+            {...form.register("notes")}
+          />
+          <FieldError message={errors.notes?.message} />
+        </div>
+
+        <Controller
+          control={form.control}
+          name="isActive"
+          render={({ field }) => (
+            <div className="flex items-center gap-2 sm:col-span-2">
+              <Checkbox
+                id="isActive"
+                checked={field.value}
+                onCheckedChange={field.onChange}
+              />
+              <Label htmlFor="isActive">Cuenta activa</Label>
+            </div>
+          )}
+        />
+      </FormGroup>
+    </form>
+  );
+}
+
+/**
+ * Variante auto-gestionada: crea y resetea su propio formulario. Se usa
+ * cuando nadie pasa una instancia externa (p. ej. tests o uso aislado).
+ */
+function SelfManagedCashAccountForm({
+  account,
+  defaultType,
+  onSubmit,
+}: Omit<CashAccountFormProps, "form">) {
+  const form = useCashAccountForm({ account, defaultType });
+  return <CashAccountFormFields form={form} onSubmit={onSubmit} />;
+}
+
+export function CashAccountForm({
+  account,
+  defaultType,
+  form,
+  onSubmit,
+}: CashAccountFormProps) {
+  if (form) {
+    return <CashAccountFormFields form={form} onSubmit={onSubmit} />;
+  }
+  return (
+    <SelfManagedCashAccountForm
+      account={account}
+      defaultType={defaultType}
+      onSubmit={onSubmit}
+    />
+  );
+}

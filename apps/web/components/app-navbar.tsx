@@ -11,12 +11,17 @@
 //
 // Cada vertical que se porta mueve su entrada de `PENDING_GROUPS` a `LINKS`, sin renombrarla ni
 // reordenar el resto: "Maestro" ya es una ruta real (`/clientes/listado`, T5c) y por eso se
-// enlaza como los pagos.
+// enlaza como los pagos. "Caja y bancos" (C5 del vertical de cajas-bancos) hace lo mismo con SUS
+// tres pantallas portadas: el origen era un desplegable de seis entradas y aca quedan tres enlaces
+// directos, con las etiquetas del origen (`Resumen` es la raiz del vertical, que en este repo es el
+// listado de cuentas). Conciliacion, extractos y configuracion NO se enlazan: son C6/C7 y su API
+// todavia no esta expuesta.
 import {
   Activity,
   ArrowDownCircle,
   ArrowUpCircle,
   Building2,
+  Calculator,
   Database,
   FileText,
   Landmark,
@@ -24,6 +29,7 @@ import {
   Receipt,
   Settings,
   ShoppingCart,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -44,6 +50,11 @@ type NavLink = {
   label: string;
   href: string;
   icon: LucideIcon;
+  /**
+   * Marca activa SOLO en la ruta exacta. Necesario cuando una entrada es prefijo de otra: sin esto,
+   * `/cajas-bancos` quedaria resaltada tambien en `/cajas-bancos/cuentas` y `/cajas-bancos/cuadres`.
+   */
+  exact?: boolean;
 };
 
 /** Modulo del origen que todavia no existe en este repo: se muestra, no se enlaza. */
@@ -64,6 +75,11 @@ const LINKS: NavLink[] = [
   // Vertical de clientes (T5c): en el origen era el grupo "Maestro"; aca es un enlace directo,
   // con el mismo trato que las dos entradas de pagos.
   { label: "Maestro", href: "/clientes/listado", icon: Database },
+  // Vertical de cajas-bancos (C5): las tres pantallas que ya tienen API, con las etiquetas del
+  // origen. La primera es prefijo de las otras dos, asi que solo se resalta en su ruta exacta.
+  { label: "Caja y bancos", href: "/cajas-bancos", icon: Landmark, exact: true },
+  { label: "Detalle de Cuentas", href: "/cajas-bancos/cuentas", icon: Wallet },
+  { label: "Cuadres de Caja", href: "/cajas-bancos/cuadres", icon: Calculator },
   { label: "Estado del API", href: "/health", icon: Activity },
 ];
 
@@ -71,29 +87,13 @@ const LINKS: NavLink[] = [
 const PENDING_GROUPS: PendingGroup[] = [
   { label: "Ventas", icon: Receipt, modules: ["/ventas", "/ventas/nuevo", "/ventas/[id]"] },
   { label: "Compras", icon: ShoppingCart, modules: ["/compras", "/compras/nuevo", "/compras/[id]"] },
-  {
-    label: "Notas y retenciones",
-    icon: FileText,
-    modules: ["/notas/credito", "/notas/debito", "/retenciones"],
-  },
-  {
-    label: "Caja y bancos",
-    icon: Landmark,
-    modules: [
-      "/cajas-bancos",
-      "/cajas-bancos/cuentas",
-      "/cajas-bancos/cuadres",
-      "/cajas-bancos/conciliacion",
-      "/cajas-bancos/extractos",
-      "/cajas-bancos/configuracion",
-    ],
-  },
+  { label: "Notas y retenciones", icon: FileText, modules: ["/notas/credito", "/notas/debito", "/retenciones"] },
   { label: "Configuración", icon: Settings, modules: ["/configuracion"] },
 ];
 
-/** Marca activa la entrada también en sus rutas hijas (/health/... si alguna vez existe). */
-function isPathActive(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
+/** Marca activa la entrada también en sus rutas hijas (/clientes/listado/... si alguna vez existe). */
+function isPathActive(pathname: string, href: string, exact = false): boolean {
+  return pathname === href || (!exact && pathname.startsWith(`${href}/`));
 }
 
 export function AppNavbar({ user }: { user: SessionUser }) {
@@ -117,7 +117,7 @@ export function AppNavbar({ user }: { user: SessionUser }) {
               {LINKS.map((item) => (
                 <NavigationMenuItem key={item.href}>
                   <NavigationMenuLink
-                    active={isPathActive(pathname, item.href)}
+                    active={isPathActive(pathname, item.href, item.exact)}
                     render={<Link href={item.href} />}
                     className={cn(navigationMenuTriggerStyle(), "gap-2")}
                   >

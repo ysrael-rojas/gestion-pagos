@@ -73,7 +73,7 @@ El dominio (tablas, RPC, RLS) está portado; la UI de cajas-bancos todavía no (
   `cash-movement`, `cash-transfer`, `petty-cash-vale`, `reconciliation`, `bank-charge`) y las
   denominaciones en `packages/shared/src/lib/caja/`.
 - **Aislamiento** — cada tabla lleva `owner_id` y RLS `owner_id = auth.uid()`; `db:check-rls`
-  (46 aserciones) prueba que un dueño no ve ni escribe filas de otro. Ver
+  (47 aserciones) prueba que un dueño no ve ni escribe filas de otro. Ver
   `docs/operacion/entornos.md` para los runners.
 - **No implementado**: pantallas de caja/bancos, conciliación bancaria en UI, reportes de
   tesorería y dashboard. Si el pedido es "que la app haga X" sobre esas piezas, es trabajo nuevo,

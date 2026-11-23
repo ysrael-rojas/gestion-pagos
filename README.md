@@ -63,7 +63,7 @@ paso 4.
 | migraciones sobre base limpia | `pnpm --filter @gestion/db db:verify` | base vacía o ya migrada |
 | esquema real vs snapshot (drift) | `pnpm --filter @gestion/db db:dump --check` | base migrada |
 | auditoría de RLS (8 bloques) | `pnpm --filter @gestion/db db:verify-rls` | contenedor, o `DATABASE_URL` + un `psql` local |
-| aislamiento por dueño (46 aserciones) | `pnpm --filter @gestion/db db:check-rls` | `DATABASE_URL` con permiso de crear base |
+| aislamiento por dueño (47 aserciones) | `pnpm --filter @gestion/db db:check-rls` | `DATABASE_URL` con permiso de crear base |
 | build de los paquetes | `pnpm build` | nada |
 
 `pnpm lint` existe en el `package.json` pero no hace nada: ningún paquete define la tarea. No lo

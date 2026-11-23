@@ -454,11 +454,11 @@ test("modificar un cliente a un documento ya usado responde 409 con el mensaje d
 	assert.equal(await liveEntityCount(owner.ownerId), before);
 });
 
-test("el numero de documento es unico entre duenos: el indice heredado no lleva owner_id", async () => {
-	// HALLAZGO (log L7 del doc de la feature): `entidad_document_unique` es
-	// (document_type, document_number) sin `owner_id`, asi que la unicidad es GLOBAL. Es una
-	// herencia de la migracion del origen (fuente de verdad, S7 del doc padre), no una decision
-	// de este port: el test la fija para que no cambie en silencio.
+test("el documento es unico POR DUENO: otro dueno puede registrar el mismo RUC", async () => {
+	// L7 cerrado (`odd/tasks/entidad-unico-por-dueno.md`): `entidad_document_unique` lleva
+	// `owner_id`, asi que la unicidad es de cada dueno. Antes era global y en un esquema
+	// multi-tenant eso impedia registrar una contraparte que otro negocio ya tenia, ademas de
+	// confirmarle por 409 que existia.
 	const ruc = `20${randomUUID().replace(/[^0-9]/g, "").padEnd(9, "7").slice(0, 9)}`;
 
 	const own = await call("POST", "/entities", {
@@ -469,20 +469,68 @@ test("el numero de documento es unico entre duenos: el indice heredado no lleva 
 	assert.equal(own.status, 201);
 	assert.equal(ruc.length, 11, "el RUC de prueba tiene 11 digitos");
 
+	// Dentro del mismo dueno no cambia nada: el duplicado sigue rechazado con su mensaje.
+	const sameOwner = await call("POST", "/entities", {
+		cookie: owner.cookie,
+		body: clientBody({ documentType: "RUC", documentNumber: ruc, name: "RUC repetido" }),
+	});
+
+	assert.equal(sameOwner.status, 409, "el mismo dueno no puede repetir el documento");
+	assert.equal(sameOwner.body?.message, DUPLICATE_MESSAGE);
+
 	const foreignCountBefore = await liveEntityCount(intruder.ownerId);
 
-	const collision = await call("POST", "/entities", {
+	const foreign = await call("POST", "/entities", {
 		cookie: intruder.cookie,
 		body: clientBody({ documentType: "RUC", documentNumber: ruc, name: "RUC del intruso" }),
 	});
 
-	assert.equal(collision.status, 409, "el indice unico no distingue duenos");
-	assert.equal(collision.body?.message, DUPLICATE_MESSAGE);
+	assert.equal(foreign.status, 201, "otro dueno si puede: la unicidad es por dueno");
+	assert.equal(await liveEntityCount(intruder.ownerId), foreignCountBefore + 1);
 	assert.equal(
-		await liveEntityCount(intruder.ownerId),
-		foreignCountBefore,
-		"el rechazo no dejo fila en el otro dueno",
+		(await rawRow(foreign.body.id as string))?.owner_id,
+		intruder.ownerId,
+		"la fila nueva es del dueno que la creo",
 	);
+
+	// El intruso es el dueno demo sembrado, y el teardown solo limpia al dueno desechable: esta
+	// fila se borra aca para no dejar la demo modificada.
+	if (typeof foreign.body?.id === "string") {
+		await pool.query("delete from public.entidad where id = $1", [foreign.body.id]);
+	}
+});
+
+test("el tipo de documento es parte de la clave: el mismo numero con otro tipo es otra fila", async () => {
+	// Agregado por la verificacion independiente: ningun test usaba el mismo numero con dos tipos
+	// para un mismo dueno, asi que sacar `document_type` del indice no rompia nada. Un numero de 11
+	// digitos es valido como RUC y tambien como carnet de extranjeria (9 a 12 alfanumericos).
+	const number = `20${randomUUID().replace(/[^0-9]/g, "").padEnd(9, "4").slice(0, 9)}`;
+
+	const asRuc = await call("POST", "/entities", {
+		cookie: owner.cookie,
+		body: clientBody({ documentType: "RUC", documentNumber: number, name: "Mismo numero RUC" }),
+	});
+
+	assert.equal(asRuc.status, 201);
+
+	const asCarnet = await call("POST", "/entities", {
+		cookie: owner.cookie,
+		body: clientBody({
+			documentType: "CARNET_EXTRANJERIA",
+			documentNumber: number,
+			name: "Mismo numero carnet",
+		}),
+	});
+
+	assert.equal(asCarnet.status, 201, "otro tipo es otra fila del mismo dueno");
+
+	const repeated = await call("POST", "/entities", {
+		cookie: owner.cookie,
+		body: clientBody({ documentType: "RUC", documentNumber: number, name: "RUC repetido" }),
+	});
+
+	assert.equal(repeated.status, 409);
+	assert.equal(repeated.body?.message, DUPLICATE_MESSAGE);
 });
 
 test("el contrato compartido valida los formatos de documento del formulario", async () => {

@@ -2,10 +2,11 @@
 //
 // Por que existe, en vez de reusar `owner.ts`:
 //
-// 1. El indice unico de documento de `entidad` es GLOBAL entre duenos (`(document_type,
-//    document_number)` sin `owner_id`, hallazgo L7 del feature doc). Un numero fijo en el spec
-//    chocaria con el de otra corrida o con el de la demo, asi que los numeros se generan aca, con
-//    un prefijo que la demo no usa.
+// 1. El indice unico de documento de `entidad` es POR DUENO (`(owner_id, document_type,
+//    document_number)` desde `20261123030000_entidad_document_unique_per_owner.sql`). Cada spec
+//    corre con un dueno desechable, asi que dos corridas no se pisan. Los numeros se siguen
+//    generando por corrida para que el spec no dependa de que un numero fijo este libre dentro de
+//    SU dueno.
 // 2. Las pruebas de S4 (baja logica: la fila queda MARCADA, no borrada) y de la entrada rechazada
 //    ("no deja fila") necesitan mirar `public.entidad` despues de la accion. Los helpers de
 //    `owner.ts` siembran entidades pero no devuelven la fila.
@@ -53,8 +54,9 @@ function uuidLiteral(value: string): string {
 /**
  * RUC de 11 digitos distinto en cada corrida.
  *
- * Prefijo `99`: la demo usa RUCs reales (`20…`) y el spec no puede depender de que un numero
- * generado no exista ya. El resto es al azar sobre 10^9, y el indice es global entre duenos (L7).
+ * Prefijo `99`: la demo usa RUCs reales (`20…`), asi que un numero generado no se confunde con
+ * uno sembrado al leer filas por documento. El resto es al azar sobre 10^9; la unicidad es por
+ * dueno, de modo que el prefijo es legibilidad y no una defensa contra colisiones entre duenos.
  */
 export function randomRuc(): string {
 	return `99${Array.from({ length: 9 }, () => randomInt(0, 10)).join("")}`;

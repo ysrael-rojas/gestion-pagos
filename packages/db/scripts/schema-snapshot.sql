@@ -632,7 +632,7 @@ INDEX public.comprobante comprobante_referenced_idx unique=false valid=true defi
 INDEX public.comprobante comprobante_ventas_idx unique=false valid=true definition=CREATE INDEX comprobante_ventas_idx ON public.comprobante USING btree (issue_date DESC) WHERE ((voucher_kind = 'VENTA'::public.voucher_kind) AND (deleted_at IS NULL))
 INDEX public.comprobante idx_comprobante_owner_id unique=false valid=true definition=CREATE INDEX idx_comprobante_owner_id ON public.comprobante USING btree (owner_id)
 INDEX public.entidad entidad_clientes_idx unique=false valid=true definition=CREATE INDEX entidad_clientes_idx ON public.entidad USING btree (created_at DESC) WHERE (is_client AND (deleted_at IS NULL))
-INDEX public.entidad entidad_document_unique unique=true valid=true definition=CREATE UNIQUE INDEX entidad_document_unique ON public.entidad USING btree (document_type, document_number) WHERE ((deleted_at IS NULL) AND (document_number <> ''::text))
+INDEX public.entidad entidad_document_unique unique=true valid=true definition=CREATE UNIQUE INDEX entidad_document_unique ON public.entidad USING btree (owner_id, document_type, document_number) WHERE ((deleted_at IS NULL) AND (document_number <> ''::text))
 INDEX public.entidad entidad_pkey unique=true valid=true definition=CREATE UNIQUE INDEX entidad_pkey ON public.entidad USING btree (id)
 INDEX public.entidad idx_entidad_owner_id unique=false valid=true definition=CREATE INDEX idx_entidad_owner_id ON public.entidad USING btree (owner_id)
 INDEX public.payment idx_payment_owner_id unique=false valid=true definition=CREATE INDEX idx_payment_owner_id ON public.payment USING btree (owner_id)

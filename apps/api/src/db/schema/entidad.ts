@@ -14,8 +14,10 @@
 //   deleted_at timestamptz null
 //   owner_id uuid not null default auth.uid()
 //   check (is_client or is_supplier)
-//   unique index entidad_document_unique (document_type, document_number)
+//   unique index entidad_document_unique (owner_id, document_type, document_number)
 //     where deleted_at is null and document_number <> ''
+//     -- L7: por dueno, desde 20261123030000; antes era global, que en un esquema multi-tenant
+//        impedia registrar una contraparte que otro dueno ya tenia.
 import { sql } from "drizzle-orm";
 import { boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth";
@@ -45,7 +47,7 @@ export const entidad = pgTable(
 	},
 	(table) => [
 		uniqueIndex("entidad_document_unique")
-			.on(table.documentType, table.documentNumber)
+			.on(table.ownerId, table.documentType, table.documentNumber)
 			.where(sql`${table.deletedAt} is null and ${table.documentNumber} <> ''`),
 		index("entidad_clientes_idx")
 			.on(table.createdAt.desc())

@@ -432,6 +432,34 @@ test("POST /cash-accounts guarda una caja chica con fondo, limite y custodio", a
 	assert.deepEqual(read.body, record);
 });
 
+// El schema compartido es el contrato del body del API y tambien el de la fila, y el formulario de
+// la web manda la SALIDA ya parseada: una caja sin periodicidad propia llega como
+// `closingPeriodicity: null`, no como "". Hasta C8 el contrato rechazaba su propia salida (400
+// `invalid_union`) y solo lo veia el navegador, porque ningun test de API mandaba `null`. Este caso
+// fija el limite HTTP para que el defecto no vuelva por la puerta de atras.
+test("POST /cash-accounts acepta en null la periodicidad que el schema produce", async () => {
+	const tag = owner.ownerId.slice(0, 8);
+
+	const created = await call("POST", "/cash-accounts", {
+		cookie: owner.cookie,
+		body: {
+			type: "CASH_BOX",
+			name: `E2E caja sin periodicidad ${tag}`,
+			closingPeriodicity: null,
+			openingBalance: 0,
+			openingBalanceDate: "2026-02-01",
+		},
+	});
+
+	assert.equal(created.status, 201, JSON.stringify(created.body));
+	assert.equal(created.body.closingPeriodicity, null);
+
+	const read = await call("GET", `/cash-accounts/${created.body.id}`, { cookie: owner.cookie });
+
+	assert.equal(read.status, 200);
+	assert.equal(read.body.closingPeriodicity, null);
+});
+
 test("PATCH /cash-accounts/:id actualiza las columnas editables y devuelve la fila nueva", async () => {
 	const tag = owner.ownerId.slice(0, 8);
 

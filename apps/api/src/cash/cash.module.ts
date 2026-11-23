@@ -1,4 +1,4 @@
-// Modulo de cajas y bancos (C1: ajustes generales).
+// Modulo de cajas y bancos (C1: ajustes generales; C2: cuentas).
 //
 // `DatabaseModule` es global, asi que el servicio solo pide el handle de Drizzle por token.
 // `AuthModule` aporta `AUTH` y `SessionGuard`: Nest instancia las guardias del `@UseGuards`
@@ -10,12 +10,14 @@
 // agregan sus controllers y servicios a este mismo modulo, no a uno nuevo.
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
+import { CashAccountsController } from "./cash-accounts.controller.ts";
+import { CashAccountsService } from "./cash-accounts.service.ts";
 import { SettingsController } from "./settings.controller.ts";
 import { SettingsService } from "./settings.service.ts";
 
 @Module({
 	imports: [AuthModule],
-	controllers: [SettingsController],
-	providers: [SettingsService],
+	controllers: [SettingsController, CashAccountsController],
+	providers: [SettingsService, CashAccountsService],
 })
 export class CashModule {}

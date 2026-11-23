@@ -201,6 +201,65 @@ export interface CashAccountCatalogItem {
   isActive: boolean;
 }
 
+/**
+ * Fila completa de `cash_account` (`apps/api/src/cash/cash-accounts.types.ts`).
+ *
+ * Es el `CashAccount` de `lib/cuentas/entidades.ts:8-32` del origen: `CashAccountCatalogItem` mas
+ * todo lo que el formulario de cuentas necesita (los datos bancarios, la periodicidad de cierre,
+ * el saldo de apertura con su fecha, las notas y el bloque de caja chica: fondo, limite por vale
+ * y custodio). `numeric(12,2)` llega como number y los timestamps como ISO string; `date` viaja
+ * "YYYY-MM-DD" sin conversion.
+ *
+ * No confundir con `CashAccountCatalogItem`: ese es el selector del formulario de pagos y sigue
+ * devolviendo cinco columnas. La fila completa la devuelven `GET /cash-accounts/:id` y las dos
+ * escrituras.
+ */
+export interface CashAccountRecord extends CashAccountCatalogItem {
+  bankName: string | null;
+  accountNumber: string | null;
+  cci: string | null;
+  closingPeriodicity: ClosingPeriodicity | null;
+  openingBalance: number;
+  openingBalanceDate: string;
+  notes: string | null;
+  isPettyCash: boolean;
+  changeFund: number;
+  pettyExpenseLimit: number | null;
+  custodianName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+/**
+ * Body de `POST /cash-accounts` y `PATCH /cash-accounts/:id`
+ * (`apps/api/src/cash/cash-accounts.query.ts`).
+ *
+ * Es el `CashAccountFormMutation` del origen (`lib/cuentas/entidades.ts:34-50`): los seis campos
+ * que el formulario siempre manda van obligatorios y el resto es opcional. `type` viaja en el
+ * body porque el schema compartido de la FILA no lo trae.
+ *
+ * El PATCH REEMPLAZA las columnas editables (no es un merge): la UI manda el formulario completo y
+ * un opcional omitido vuelve a su default del schema compartido.
+ */
+export interface CashAccountWrite {
+  type: CashAccountType;
+  name: string;
+  currency: string;
+  openingBalance: number;
+  openingBalanceDate: string;
+  isActive: boolean;
+  bankName?: string;
+  accountNumber?: string;
+  cci?: string;
+  closingPeriodicity?: ClosingPeriodicity | null;
+  notes?: string;
+  isPettyCash?: boolean;
+  changeFund?: number;
+  pettyExpenseLimit?: number;
+  custodianName?: string;
+}
+
 export interface PaymentMethodCatalogItem {
   id: string;
   code: string;
@@ -537,9 +596,47 @@ export async function softDeleteEntity(id: string): Promise<void> {
   });
 }
 
-/** Cuentas de caja y banco (`listCashAccounts`). */
+/**
+ * Catalogo de cuentas del dueno (`listCashAccounts` del origen), para el selector de pagos.
+ *
+ * Cinco columnas y nada mas: es el contrato que consume `components/pagos/*`. La fila completa del
+ * vertical de cajas-bancos se pide por id (`getCashAccount`) o vuelve de una escritura.
+ */
 export function listCashAccounts(): Promise<CashAccountCatalogItem[]> {
   return request<CashAccountCatalogItem[]>("/cash-accounts");
+}
+
+/** Fila completa de una cuenta viva del dueno (`GET /cash-accounts/:id`). */
+export function getCashAccount(id: string): Promise<CashAccountRecord> {
+  return request<CashAccountRecord>(`/cash-accounts/${encodeURIComponent(id)}`);
+}
+
+/** Alta de cuenta (`createCashAccount` del origen). Devuelve la fila completa creada. */
+export function createCashAccount(values: CashAccountWrite): Promise<CashAccountRecord> {
+  return request<CashAccountRecord>("/cash-accounts", { method: "POST", body: values });
+}
+
+/** Modificacion (`updateCashAccount`). Reemplaza las columnas editables, no hace merge. */
+export function updateCashAccount(
+  id: string,
+  values: CashAccountWrite,
+): Promise<CashAccountRecord> {
+  return request<CashAccountRecord>(`/cash-accounts/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: values,
+  });
+}
+
+/**
+ * Baja logica (`softDeleteCashAccount`): `POST /cash-accounts/:id/delete`.
+ *
+ * POST y no DELETE porque la fila no desaparece: se marca `deleted_at` (los pagos y cierres la
+ * referencian), igual que la baja de una entidad o la anulacion de un pago.
+ */
+export async function softDeleteCashAccount(id: string): Promise<void> {
+  await request<{ deleted: true }>(`/cash-accounts/${encodeURIComponent(id)}/delete`, {
+    method: "POST",
+  });
 }
 
 /** Metodos de pago (`listPaymentMethods`). */

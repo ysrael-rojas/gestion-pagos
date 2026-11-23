@@ -13,8 +13,8 @@
 // reordenar el resto: "Maestro" ya es una ruta real (`/clientes/listado`, T5c) y por eso se
 // enlaza como los pagos. "Caja y bancos" (C5 del vertical de cajas-bancos) hace lo mismo con SUS
 // pantallas portadas: el origen era un desplegable de seis entradas y aca quedan seis enlaces
-// directos, con las etiquetas del origen. "Resumen" es la raiz del vertical, que desde C7 es el
-// dashboard de tesoreria (antes era el listado de cuentas, porque el dashboard no existia).
+// directos, con las etiquetas del origen. "Resumen" apunta a `/`, que hoy es el inventario del
+// UI-kit; el dashboard de tesoreria vive en `/cajas-bancos` y se entra por "Caja y bancos".
 // "Extractos" se enlazo en C6 y "Conciliacion" y "Configuracion" en C7, cuando su API quedo
 // expuesta (bank-reconciliations, cash-flow, payment-methods, receipt-categories y settings).
 

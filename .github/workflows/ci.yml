@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
-      # La base **no** es opcional: `apps/api` corre sus e2e contra la base sembrada (33 tests que
+      # La base **no** es opcional: `apps/api` corre sus e2e contra la base sembrada (127 tests que
       # emiten sesiones reales de Better Auth y atraviesan `withOwner`). Sin servicio, `pnpm test`
       # falla por falta de DATABASE_URL.
       postgres:

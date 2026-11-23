@@ -167,3 +167,70 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   C4 cierres/arqueos, C5 pantallas base, C6 transferencias/caja chica, C7 conciliación y
   configuración, C8 e2e y RLS. C4 lleva riesgo 1 (irreversible) y 4 (concurrencia) y por eso va con
   verificación independiente.
+
+## Estado para retomar (handoff)
+
+**Donde esta todo.** Rama `feat/vertical-cajas-bancos`, 6 commits sobre `main`, **sin push**. Cinco
+de los ocho slices estan hechos y verdes; C6, C7 y C8 no se empezaron. El documento de arriba es la
+spec, el plan y el log: una sesion nueva se lee de aca hasta `## Log` y arranca en C6.
+
+**Lo hecho, con su evidencia.**
+
+| Slice | Commit | Evidencia |
+| --- | --- | --- |
+| C1 settings + `ensure` (cierra L67) | `7328a02` | `cash-settings.e2e` 7/7 |
+| C2 cuentas CRUD + fila completa | `c260e41` | `cash-accounts.e2e` 8/8, `catalogs.e2e` 6/6 |
+| C3 posiciones y fechas | `5d958dd` | `cash-positions.e2e` 6/6 |
+| C4 cierres y arqueos | `20dd805` | `cash-closes.e2e` 12/12 + verificacion independiente |
+| C5 pantallas base | `509f684` | `pnpm --filter @gestion/web test` 60/60, typecheck 0 |
+
+Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despues de cada slice.
+
+**Lo que falta, en orden.**
+1. **C6** — transferencias (`create_cash_transfer`), caja chica (`create_petty_cash_vale`,
+   `replenish_petty_cash`, `void_petty_cash_vale`) y extractos. Riesgo 4 (correlativo de vale bajo
+   lock) y 1 (el vale genera un `payment`).
+2. **C7** — conciliacion (`save_bank_reconciliation`), configuracion (metodos de pago, categorias) y
+   dashboard/proyeccion.
+3. **C8** — e2e del vertical (la prueba real de las pantallas de C5), teardown y baseline de las
+   tablas de caja, RLS y docs. **Antes de escribir el spec 09**, ver "trampas".
+
+**Trampas que ya costaron tiempo, no las redescubras.**
+- **El puente se olvida.** Cada prefijo nuevo tiene que agregarse a `ALLOWED_PREFIXES` de
+  `apps/web/app/api/backend/[...path]/route.ts`, o el navegador recibe 404 del puente con la ruta
+  viva en el API. Paso con C3 (`cash-positions`, `last-movement-dates`) y con C4 (`cash-closes`,
+  `cash-counts`). C6 y C7 van a necesitar los suyos.
+- **Teardown y baseline (L5).** `deleteOwnerFixtures` borra `cash_account` antes que
+  `cash_transfer`, `cash_count`, `cash_close_denomination` y `bank_reconciliation`, y el baseline de
+  `e2e/support/database.ts` no cuenta esas tablas: el primer spec de cajas revienta por FK. C8 lo
+  arregla y ningun spec de cajas corre antes.
+- **`app_setting` no la limpia nadie** (L8): no tiene FK a `auth.users`, cada test la borra a mano.
+- **Los workers de UI se cuelgan si abren servidores.** Los slices de API y de UI se delegan con la
+  regla "nunca `next dev/start`, nunca Playwright"; asi ninguno se colgo. El e2e lo corre el padre.
+- **Verificador sin shell.** `gentle-ai-verify` con shell se colgo 30 min dos veces; con "no tenes
+  shell, usa read/grep/find y responde `needs execution`" termina en minutos y encuentra mas.
+
+**Comandos.**
+- API: `cd apps/api && DATABASE_URL=postgresql://dev_user:<pass>@localhost:5434/gestion_pagos_dev node --test --experimental-transform-types "test/<archivo>.e2e.test.ts"` (la password esta en `.env.dev`, que el lector de archivos bloquea: pedirla al humano).
+- Web: `pnpm --filter @gestion/web typecheck` y `pnpm --filter @gestion/web test`.
+- e2e (solo el padre): exportar `DOCKER` con la ruta absoluta al `docker.exe` (Node no aplica
+  `PATHEXT`), `PLAYWRIGHT_BROWSERS_PATH=$PWD/.cache/ms-playwright`, `E2E_WEB_PORT`/`E2E_API_PORT`
+  distintos de 3000/3001 (3001 suele estar ocupado), y `DATABASE_URL`.
+- Drift: `node packages/db/scripts/dump-schema.mjs > packages/db/scripts/schema-snapshot.sql` y
+  `pnpm --filter @gestion/db db:dump --check`.
+
+**Deudas abiertas, con su referencia.**
+- L13 — el provider hidrata la fila completa de cada cuenta con un `GET /cash-accounts/:id` (N+1).
+  La salida limpia es un `GET /cash-accounts?full=1` aditivo.
+- L14 — **ninguna pantalla de C5 se probo en un navegador**; la prueba es el spec de C8.
+- L12(a) — `authenticated` conserva UPDATE/DELETE sobre `cash_count` y las tablas de denominaciones
+  (solo `cash_close` esta re-revokeado); sin politica de UPDATE/DELETE esas sentencias afectan 0
+  filas, no fallan. Inocuo hoy, anotado.
+- L8 — `apps/api/src/db/schema/index.ts` no exporta los schemas nuevos (los servicios importan
+  directo).
+- C6/C7 necesitaran sus propios prefijos en el puente y su propio mapa de errores si aparece un
+  CHECK nuevo.
+
+**Publicacion.** El vertical supera las 11.000 lineas en 6 commits: cuando se publique, la forma
+natural es PR encadenado (API C1-C4, UI C5-C7, e2e C8) o un PR unico con el orden de los commits
+como guia. Es decision del humano, no del documento.

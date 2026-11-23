@@ -222,6 +222,34 @@ export interface CatalogSeedResult {
   categories: number;
 }
 
+/** Los tres valores del enum `closing_periodicity` (`apps/api/src/cash/settings.types.ts`). */
+export type ClosingPeriodicity = "DAILY" | "WEEKLY" | "MONTHLY";
+
+/**
+ * Ajustes del dueno: `key -> value`, tal como estan en `app_setting`.
+ *
+ * Es un mapa de strings y no un objeto con las tres claves porque la tabla es clave/valor y
+ * admite cualquier clave; los lectores con defaults viven en `lib/cajas-bancos/settings.ts`.
+ */
+export type AppSettings = Record<string, string>;
+
+/**
+ * Body de `PATCH /settings`: solo las tres claves que expone la tarjeta de configuracion.
+ *
+ * Los numeros viajan como numeros; el API los normaliza como los guardaba el origen
+ * (`String(rate)` y `tolerance.toFixed(2)`), asi que el valor guardado no depende del cliente.
+ */
+export interface SettingsUpdate {
+  default_closing_periodicity?: ClosingPeriodicity;
+  pen_usd_rate?: number;
+  cash_difference_tolerance?: number;
+}
+
+/** `POST /settings/ensure`: cuantas filas falto crear (`0` = ya estaba sembrado). */
+export interface SettingsSeedResult {
+  created: number;
+}
+
 /** Asignacion de entrada (`AllocationInput` del origen). */
 export interface AllocationInput {
   comprobanteId: string;
@@ -538,6 +566,33 @@ export function listReceiptCategories(
  */
 export function ensureCatalogs(): Promise<CatalogSeedResult> {
   return request<CatalogSeedResult>("/catalogs/ensure", { method: "POST", body: {} });
+}
+
+/**
+ * Ajustes del dueno (`getAppSettings`). Lectura pura: no siembra nada, aunque el dueno no tenga
+ * ninguna fila todavia (`GET /settings` devuelve `{}`).
+ */
+export function getSettings(): Promise<AppSettings> {
+  return request<AppSettings>("/settings");
+}
+
+/**
+ * Upsert parcial de los ajustes de la tarjeta (`setAppSetting`, tres veces en el origen).
+ *
+ * Devuelve el mapa completo ya guardado, que es lo que la tarjeta vuelve a leer.
+ */
+export function updateSettings(values: SettingsUpdate): Promise<AppSettings> {
+  return request<AppSettings>("/settings", { method: "PATCH", body: values });
+}
+
+/**
+ * Siembra idempotente de las tres semillas del origen (`ensureDefaultSettings`, deuda L67).
+ *
+ * Ver `lib/cajas-bancos/settings.ts`: en el origen esto escribia dentro del render de la tarjeta
+ * de configuracion; aca es una llamada explicita y una sola vez.
+ */
+export function ensureSettings(): Promise<SettingsSeedResult> {
+  return request<SettingsSeedResult>("/settings/ensure", { method: "POST", body: {} });
 }
 
 /** Smoke del borde de validacion: el API devuelve el payload ya parseado por el schema. */

@@ -8,12 +8,14 @@
 // Que NO hace: no transforma nada, no valida nada y no agrega campos. El `owner_id` no existe en
 // esta capa: lo pone `withOwner` en apps/api a partir de la sesion.
 //
-// Lista blanca de prefijos y metodos: el puente solo alcanza los verticales portados (pagos y
-// clientes), no cualquier ruta del API. Un path inesperado responde 404 sin salir del proceso.
+// Lista blanca de prefijos y metodos: el puente solo alcanza los verticales portados (pagos,
+// clientes y cajas-bancos), no cualquier ruta del API. Un path inesperado responde 404 sin salir
+// del proceso.
 //
-// `PATCH` esta porque `PATCH /entities/:id` es la modificacion de cliente (T5c). Sin el, el
-// navegador recibia 405 del puente y el usuario veia "El API respondio 405" en la pantalla de
-// edicion: el sintoma parecia del API y era de esta lista.
+// `PATCH` esta porque `PATCH /entities/:id` es la modificacion de cliente (T5c) y
+// `PATCH /settings` la configuracion general de cajas-bancos (C1). Sin el, el navegador recibia
+// 405 del puente y el usuario veia "El API respondio 405" en la pantalla de edicion: el sintoma
+// parecia del API y era de esta lista.
 import { API_BASE_URL } from "@/lib/api/client";
 
 /** Prefijos de apps/api que el frontend consume hoy. */
@@ -26,6 +28,7 @@ const ALLOWED_PREFIXES = new Set([
   "payment-methods",
   "receipt-categories",
   "catalogs",
+  "settings",
 ]);
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH"]);

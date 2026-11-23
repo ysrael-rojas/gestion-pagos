@@ -17,6 +17,22 @@ import { randomUUID } from "node:crypto";
 import { API_ORIGIN } from "./env";
 import { psqlLines, psqlValue, sqlText } from "./psql";
 
+/**
+ * "Hoy" para las fixtures, en la zona de la APP, no la del contenedor.
+ *
+ * Por que no `current_date`: Postgres del compose corre en UTC y la app calcula sus fechas con
+ * `getTodayLocalDate()` sobre `America/Lima` (`playwright.config.ts` fija `timezoneId`). Entre
+ * las 19:00 y las 24:00 de Lima, UTC ya es el dia siguiente, asi que una caja "abierta hoy" por la
+ * base nacia con fecha futura y `crear_payment` la rechazaba con "La fecha del recibo (...) es
+ * anterior al saldo inicial de la cuenta (...)": los specs que crean un pago fallaban por un
+ * desfase de reloj, no por el producto.
+ *
+ * El sintoma aparecia solo en esa franja horaria, que es justo lo que un bug asi necesita para
+ * pasar desapercibido en un CI que corre a cualquier hora.
+ */
+const APP_TIME_ZONE = "America/Lima";
+const APP_TODAY = `(now() at time zone '${APP_TIME_ZONE}')::date`;
+
 /** Dueno desechable de un spec. `password` vive solo en memoria del test. */
 export interface Owner {
 	id: string;
@@ -117,7 +133,7 @@ export function provisionFixtures(owner: Owner, options: ProvisionOptions): Owne
 
 		statements.push(
 			`insert into public.cash_account (id, type, name, currency, opening_balance, opening_balance_date, owner_id)
-			 values ('${id}', 'CASH_BOX', ${sqlText(name)}, 'PEN', 0, current_date, ${ownerId});`,
+			 values ('${id}', 'CASH_BOX', ${sqlText(name)}, 'PEN', 0, ${APP_TODAY}, ${ownerId});`,
 		);
 		fixtures.cashAccount = { id, name };
 	}
@@ -150,7 +166,7 @@ export function provisionFixtures(owner: Owner, options: ProvisionOptions): Owne
 
 		statements.push(
 			`insert into public.comprobante (id, entity_id, voucher_kind, voucher_type, voucher_number, issue_date, subtotal, igv, total, payment_type, owner_id)
-			 values ('${id}', '${fixtures.entity?.id}', 'VENTA', 'FACTURA', ${sqlText(number)}, current_date, ${total}, 0, ${total}, 'CONTADO', ${ownerId});`,
+			 values ('${id}', '${fixtures.entity?.id}', 'VENTA', 'FACTURA', ${sqlText(number)}, ${APP_TODAY}, ${total}, 0, ${total}, 'CONTADO', ${ownerId});`,
 		);
 		fixtures.voucher = { id, number, total };
 	}
@@ -175,7 +191,7 @@ export function provisionForeignCashAccount(owner: Owner): { id: string; name: s
 
 	psqlLines(
 		`insert into public.cash_account (id, type, name, currency, opening_balance, opening_balance_date, owner_id)
-		 values ('${id}', 'CASH_BOX', ${sqlText(name)}, 'PEN', 0, current_date, ${sqlText(owner.id)});\n`,
+		 values ('${id}', 'CASH_BOX', ${sqlText(name)}, 'PEN', 0, ${APP_TODAY}, ${sqlText(owner.id)});\n`,
 	);
 
 	return { id, name };

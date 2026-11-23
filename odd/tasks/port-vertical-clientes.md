@@ -109,13 +109,22 @@ o un PR unico con el orden de los commits como guia) es decision del usuario, no
   2026-11-23, mientras la UI calcula "hoy" en `America/Lima` (2026-11-22) y los fixtures crean la
   cuenta con el `current_date` de la base. **No es una regresion de esta rama**: la regla es de
   fechas, no toca `entidad` ni el puente, y el mismo codigo de pagos sin cambios falla igual entre
-  las 19:00 y las 24:00 de Lima. Queda como deuda: el fixture deberia crear la cuenta con la fecha
-  local de la app, no con la de la base.
+  las 19:00 y las 24:00 de Lima. Arreglado en L15 (el fixture ahora usa la fecha local de la app).
 - **L14 — Verificacion independiente: no disponible.** `gentle-ai-verify` se colgo 30 minutos en
   una llamada de `bash` (mismo sintoma que el primer worker de C5). Sin verificador, los riesgos 2
   y 3 de C1 quedan **sin verificacion independiente**: hay evidencia propia (9/9 del e2e de API,
   6/6 del e2e del vertical, revision de los caminos de escritura), pero no la firma de un tercero.
   No se declara verificado.
+- **L15 — Arreglo del fixture de fechas (autorizado por el usuario en este PR).**
+  `apps/web/e2e/support/owner.ts` calculaba `opening_balance_date` (cuentas de caja) y
+  `issue_date` (comprobantes) con el `current_date` del contenedor. Ahora usa
+  `(now() at time zone 'America/Lima')::date`, que es la misma nocion de "hoy" que la UI
+  (`playwright.config.ts` fija `timezoneId: America/Lima` y la app usa `getTodayLocalDate()`).
+  Es un cambio de fixture, no de producto: la regla de dominio no se toco.
+  Evidencia RED->GREEN **con el mismo reloj**: en la franja 21:33-22:30 de Lima (UTC ya dia 23)
+  `04-create-payment` y `05-void-payment` fallaron dos veces antes del cambio y pasaron 2/2
+  despues, con los conteos de la base intactos. Es un bug que solo se ve en una franja horaria, y
+  por eso ningun CI de horario fijo lo iba a atrapar de forma fiable.
 - **L11 — Correccion de spec (error del padre).** S3 citaba como textual una confirmacion de
   borrado que **no** era la del source ("Estas seguro? Esto eliminara el cliente."), inventada al
   redactar el documento. El worker de C3 lo detecto al diffear contra el source. La cadena real es
@@ -159,8 +168,8 @@ pantallas, y e2e propio. No hay cambios en `packages/db`: la tabla `entidad` ya 
 
 **Lo que NO esta hecho.**
 - Verificacion independiente de los riesgos 2 y 3 de C1: el verificador se colgo (L14).
-- Deudas heredadas del vertical, sin tocar: unicidad global del documento (L7) y la fecha del
-  fixture de caja (L13).
+- Deuda heredada del vertical, sin tocar: unicidad global del documento (L7). La fecha del
+  fixture de caja quedo arreglada (L15).
 - `odd/tasks/port-monorepo.md` tiene un cambio sin commitear de la sesion de entorno (notas de los
   shims de `install/home/bin`, deuda L79): no pertenece a este vertical.
 

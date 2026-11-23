@@ -1,9 +1,11 @@
 // Helpers puros de fecha del cuadre de caja (C5 del vertical de cajas-bancos).
 //
-// Port de `lib/caja/periodo.ts` del origen (72 lineas). Son cuatro funciones sin red, sin reloj y
-// sin base: la fecha "hoy" siempre entra por parametro, y por eso se pueden probar solas (ver
-// `periodo.test.ts`). Viven aca, en la web, porque son aritmetica de calendario y no de dinero:
-// S2 prohibe que la app calcule saldos, no que sepa que dia termina un periodo.
+// Port de `lib/caja/periodo.ts` del origen (72 lineas) mas `getMonthRange` (que en el origen vivia
+// en `lib/caja/dashboard.ts` y que comparten el extracto de C6 y el flujo de C7). Son cinco
+// funciones sin red, sin reloj y sin base: la fecha "hoy" siempre entra por parametro, y por eso se
+// pueden probar solas (ver `periodo.test.ts`). Viven aca, en la web, porque son aritmetica de
+// calendario y no de dinero: S2 prohibe que la app calcule saldos, no que sepa que dia termina un
+// periodo.
 //
 // QUE NO SE PORTA Y POR QUE: `computeCashDifference` del origen (`:45-54`). Ningun componente lo
 // usaba —el saldo, los totales y la diferencia los escribe la RPC `close_cash_account`— y dejarlo
@@ -35,6 +37,27 @@ export function addDays(value: string, days: number): string {
   date.setUTCDate(date.getUTCDate() + days);
 
   return toIsoDate(date);
+}
+
+/**
+ * Primer y ultimo dia del mes de una fecha `YYYY-MM-DD`.
+ *
+ * Origen: `getMonthRange` de `lib/caja/dashboard.ts`. Vive aca, junto a las otras reglas de
+ * calendario, y no en `lib/cajas-bancos/dashboard.ts`, por dos razones: es aritmetica de fecha (no
+ * de dinero) y tiene dos consumidores —el flujo del mes del dashboard (C7) y el rango inicial del
+ * extracto (C6)—, asi que tenerla en `periodo.ts` evita que el port escriba una segunda version
+ * cuando llegue C7. Se arma con `Date.UTC` por lo mismo que `addDays`: el ultimo dia del mes no
+ * puede depender de la zona del navegador.
+ */
+export function getMonthRange(value: string): { start: string; end: string } {
+  const [year, month] = value.split("-").map(Number);
+  // Dia 0 del mes siguiente = ultimo dia de este mes (y respeta febrero bisiesto).
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  return {
+    start: `${value.slice(0, 7)}-01`,
+    end: `${value.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`,
+  };
 }
 
 /**

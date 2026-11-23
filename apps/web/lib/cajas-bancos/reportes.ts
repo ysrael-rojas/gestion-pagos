@@ -4,10 +4,9 @@
 // reloj: entran filas (recibos o movimientos) y salen totales, que es lo que imprimen el acta
 // (`cuadre-acta.tsx`) y el reporte (`cuadre-report.tsx`).
 //
-// `summarizeStatement` no tiene consumidor en este slice —la tabla de movimientos del reporte
-// lista los recibos del periodo y las transferencias son C6— pero se porta igual porque es pura y
-// es exactamente lo que la pantalla de extractos (C6) usa: probar la regla ahora es mas barato
-// que reescribirla despues con un segundo criterio de que suma y que no.
+// `summarizeStatement` lo consume la pantalla de extractos (`extractos-view.tsx`, C6): suma los
+// recibos NO anulados del rango, cuenta las transferencias y deja el detalle a la tabla. Se porto en
+// C5 —sin consumidor todavia— porque era pura, y C6 la usa sin cambios.
 import { round2 } from "@gestion/shared/lib/utils.ts";
 
 export interface ReceiptRange {

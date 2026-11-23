@@ -11,14 +11,17 @@
 // edicion ni de borrado de un cierre porque no hay endpoint que las haga (`close_cash_account` no
 // tiene inversa) y porque el periodo ya bloqueado no debe reabrirse desde una tabla.
 //
-// QUE NO SE PORTA Y POR QUE (C6):
+// QUE SE PORTA EN C6 Y QUE NO:
 //
-//   - Las transferencias del periodo (`listAccountTransfers`): `GET /cash-transfers` no esta
-//     expuesto. Su columna en la tabla de movimientos y el total "Transferencias" del cierre no se
-//     pierden: los dos totales los escribio la RPC y el acta los imprime.
-//   - "Marcar verificado" sobre los recibos en revision y el modal de cargos bancarios
-//     (`bank-charge-modal.tsx`, que registra un egreso via `POST /payments`). Son acciones del
-//     slice de extractos/conciliacion y su componente no existe en este repo.
+//   - SI: las transferencias del periodo (`listAccountTransfers`, `GET /cash-transfers`). Se piden
+//     junto con los recibos del cierre, con los mismos bordes del periodo, y viajan al reporte para
+//     que la tabla de movimientos las liste como filas propias. Los totales `transferInTotal` y
+//     `transferOutTotal` del cierre siguen viniendo de la RPC: la pantalla no los recalcula.
+//   - NO: "Marcar verificado" sobre los recibos en revision y el modal de cargos bancarios
+//     (`bank-charge-modal.tsx`), que registra un egreso via `POST /payments`. Son acciones de la
+//     conciliacion (C7) y ese componente no existe en este repo: el `StatementTable` los acepta como
+//     props opcionales y esta pantalla no las pasa, que es como se comportaba el origen cuando el
+//     consumidor no las ofrecia.
 //
 // DESVIO DELIBERADO: las lecturas del cuadre ya no se piden desde la pantalla. `loadCuadre`,
 // `loadCloseDetail` y `loadStatement` del provider concentran las cinco lecturas por cuenta y las
@@ -82,6 +85,10 @@ import type {
   CloseDenomination,
   Payment,
 } from "@/lib/api/client";
+import {
+  listAccountTransfers,
+  type CashTransfer,
+} from "@/lib/cajas-bancos/transferencias";
 import type { CashAccountRecord } from "@/lib/cuentas/entidades";
 
 function getErrorMessage(error: unknown): string {
@@ -321,6 +328,7 @@ export function CuadresView() {
     null,
   );
   const [statement, setStatement] = useState<Payment[]>([]);
+  const [transfers, setTransfers] = useState<CashTransfer[]>([]);
   const [denominations, setDenominations] = useState<CloseDenomination[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -376,14 +384,22 @@ export function CuadresView() {
       if (!accountId || !selectedClose) {
         if (isMounted) {
           setStatement([]);
+          setTransfers([]);
           setDenominations([]);
         }
         return;
       }
 
       try {
-        const [data, detail] = await Promise.all([
+        const [data, nextTransfers, detail] = await Promise.all([
           loadStatement(
+            accountId,
+            selectedClose.periodStart,
+            selectedClose.periodEnd,
+          ),
+          // Las transferencias del periodo, que los recibos no traen: es la otra mitad de la tabla
+          // de movimientos del reporte (C6).
+          listAccountTransfers(
             accountId,
             selectedClose.periodStart,
             selectedClose.periodEnd,
@@ -392,6 +408,7 @@ export function CuadresView() {
         ]);
         if (isMounted) {
           setStatement(data);
+          setTransfers(nextTransfers);
           setDenominations(detail.denominations);
         }
       } catch (error) {
@@ -579,6 +596,7 @@ export function CuadresView() {
             <CuadreReport
               close={selectedClose}
               statement={statement}
+              transfers={transfers}
               accountName={account.name}
               currency={account.currency}
               accountType={account.type}

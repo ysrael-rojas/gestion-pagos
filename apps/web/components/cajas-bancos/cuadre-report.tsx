@@ -8,21 +8,22 @@
 // anulados, que si aparecen en Movimientos), la exportacion a CSV y los dos botones "Exportar CSV"
 // e "Imprimir acta"; el acta es `cuadre-acta.tsx`, que llama `window.print()`.
 //
-// QUE NO SE PORTA Y POR QUE (C6):
+// QUE SE PORTA EN C6 Y QUE NO:
 //
-//   - Las TRANSFERENCIAS del periodo (`listAccountTransfers`) y las filas de "Transferencia" de la
-//     tabla de movimientos. `POST/GET /cash-transfers` no esta expuesto todavia, y `transferInTotal`
-//     /`transferOutTotal` del cierre SI se muestran: los sumo la RPC al cerrar.
-//   - Las acciones sobre los recibos del periodo: "Marcar verificado" en bloque y "Registrar cargo
-//     bancario". La primera dependia de `statement-table.tsx` (que trae la seleccion multiple y que
-//     no forma parte de este slice); la segunda del modal de cargos, que escribe un egreso
-//     (`POST /payments` con `isCashMovement`) y es de C6.
+//   - SI: las TRANSFERENCIAS del periodo. La tabla de movimientos pasa a ser el `StatementTable`
+//     portado (`statement-table.tsx`) alimentado por `buildStatementRows(statement, transfers,
+//     accountId)`: los recibos del periodo MAS las transferencias en las que la cuenta participo,
+//     con la direccion resuelta segun sea origen o destino. Los totales `transferInTotal` /
+//     `transferOutTotal` del acta siguen viniendo del cierre, que los sumo la RPC al cerrar.
+//   - NO: las acciones sobre los recibos del periodo ("Marcar verificado" en bloque y "Registrar
+//     cargo bancario"). La primera es el paso de conciliacion (C7) y la segunda depende de
+//     `bank-charge-modal.tsx`, que no existe en este repo. El `StatementTable` las acepta como
+//     props opcionales y esta pantalla no las pasa: sin ellas la barra de acciones no se dibuja y
+//     la columna de acciones queda vacia, igual que el origen cuando el consumidor no las ofrecia.
 //
-// DESVIO DELIBERADO: el origen delegaba la tabla de movimientos en
-// `components/cajas-bancos/statement-table.tsx` (`buildStatementRows` + `StatementTable`). Como esa
-// pieza no existe en este repo y su unica entrada extra eran las transferencias de C6, aca vive una
-// version reducida de la misma tabla: los recibos del periodo, ordenables y paginados, sin
-// seleccion multiple ni acciones. La columna "Tipo" desaparece porque todo lo listado es un recibo.
+// DESVIO DELIBERADO: la cuenta de la tabla de movimientos sale de `close.cashAccountId` y no de una
+// prop `accountId` como en el origen. Es el mismo dato —el cierre pertenece a esa cuenta— y evita
+// una prop que el consumidor tendria que pasar copiando lo que ya esta en `close`.
 //
 // S2 — Nada de este archivo calcula plata del cierre: `openingBalance`, `incomeTotal`,
 // `expenseTotal`, `expectedBalance`, `difference`, `changeFund` y la tolerancia vienen del cierre.
@@ -59,8 +60,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DataTablePagination } from "@/components/shared/data-table-pagination";
-import { ReceiptStatusBadge } from "@/components/pagos/receipt-status-badge";
 import { CuadreActa } from "@/components/cajas-bancos/cuadre-acta";
+import { StatementTable } from "@/components/cajas-bancos/statement-table";
+import { buildStatementRows } from "@/lib/cajas-bancos/statement";
+import type { CashTransfer } from "@/lib/cajas-bancos/transferencias";
 import { downloadCsv, toCsv } from "@/lib/cajas-bancos/csv";
 import {
   formatReceiptRanges,
@@ -86,6 +89,8 @@ interface CuadreReportProps {
   close: CashCloseRecord;
   /** Recibos del periodo del cierre (`listAccountStatement`). */
   statement: Payment[];
+  /** Transferencias del periodo en las que la cuenta participo (`listAccountTransfers`). */
+  transfers: CashTransfer[];
   accountName: string;
   currency: string;
   /** Tipo de cuenta: define la etiqueta del conteo (caja vs. banco). */
@@ -160,11 +165,6 @@ const categoryColumnHelper = createColumnHelper<
   CategoryTotal
 >();
 
-const movementColumnHelper = createColumnHelper<
-  typeof reportTableFeatures,
-  Payment
->();
-
 interface CategoryTotalsTableProps {
   categories: CategoryTotal[];
   currency: string;
@@ -223,166 +223,6 @@ function CategoryTotalsTable({
   const table = useTable({
     features: reportTableFeatures,
     data: categories,
-    columns,
-    onSortingChange: setSorting,
-    state: { sorting },
-    initialState: {
-      pagination: {
-        pageIndex: 0,
-        pageSize: DEFAULT_PAGE_SIZE,
-      },
-    },
-  });
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="overflow-hidden rounded-md border bg-background">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder ? null : (
-                      <table.FlexRender header={header} />
-                    )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="text-center text-sm text-muted-foreground"
-                >
-                  Sin movimientos en el período.
-                </TableCell>
-              </TableRow>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getAllCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      <table.FlexRender cell={cell} />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      <DataTablePagination table={table} />
-    </div>
-  );
-}
-
-/**
- * Movimientos del periodo del cierre: los recibos con su estado de conciliacion.
- *
- * Version reducida de `StatementTable` del origen (ver QUE NO SE PORTA en el encabezado): sin
- * seleccion multiple, sin "Marcar verificado" y sin "Registrar cargo bancario".
- */
-function MovementsTable({
-  statement,
-  currency,
-}: {
-  statement: Payment[];
-  currency: string;
-}) {
-  const [sorting, setSorting] = useState<SortingState>([]);
-
-  const columns = useMemo(
-    () =>
-      movementColumnHelper.columns([
-        movementColumnHelper.accessor("paymentDate", {
-          header: ({ column }) => (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            >
-              Fecha
-              <ArrowUpDown />
-            </Button>
-          ),
-          cell: ({ getValue }) => formatDate(getValue()),
-        }),
-        movementColumnHelper.accessor("receiptNumber", {
-          header: ({ column }) => (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            >
-              Recibo
-              <ArrowUpDown />
-            </Button>
-          ),
-          cell: ({ getValue }) => getValue(),
-        }),
-        movementColumnHelper.accessor("direction", {
-          header: () => <span>Dirección</span>,
-          cell: ({ getValue }) =>
-            getValue() === "INGRESO" ? "Ingreso" : "Egreso",
-        }),
-        movementColumnHelper.accessor("categoryName", {
-          header: ({ column }) => (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            >
-              Categoría
-              <ArrowUpDown />
-            </Button>
-          ),
-          cell: ({ getValue }) => getValue() || "Sin categoría",
-        }),
-        movementColumnHelper.accessor("methodName", {
-          header: ({ column }) => (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            >
-              Método
-              <ArrowUpDown />
-            </Button>
-          ),
-          cell: ({ getValue }) => getValue() || "—",
-        }),
-        movementColumnHelper.accessor("amount", {
-          header: ({ column }) => (
-            <div className="text-right">
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  column.toggleSorting(column.getIsSorted() === "asc")
-                }
-              >
-                Importe
-                <ArrowUpDown />
-              </Button>
-            </div>
-          ),
-          cell: ({ getValue }) => (
-            <div className="text-right">
-              {formatAmount(getValue(), currency)}
-            </div>
-          ),
-        }),
-        movementColumnHelper.accessor("status", {
-          header: () => <span>Estado</span>,
-          cell: ({ getValue }) => <ReceiptStatusBadge status={getValue()} />,
-        }),
-      ]),
-    [currency],
-  );
-
-  const table = useTable({
-    features: reportTableFeatures,
-    data: statement,
     columns,
     onSortingChange: setSorting,
     state: { sorting },
@@ -529,6 +369,7 @@ function DenominationTable({
 export function CuadreReport({
   close,
   statement,
+  transfers,
   accountName,
   currency,
   accountType,
@@ -542,6 +383,9 @@ export function CuadreReport({
   // caen al valor actual de la cuenta.
   const effectiveChangeFund = close.changeFund ?? changeFund;
   const categories = groupByCategory(statement);
+  // Los recibos y las transferencias del periodo en una sola lista ordenada por fecha. La cuenta
+  // sale del cierre: es la cuenta cuyos movimientos se estan reportando.
+  const statementRows = buildStatementRows(statement, transfers, close.cashAccountId);
   // El detalle manda cuando existe: A = suma del conteo. Si el cierre es previo
   // al arqueo por denominación, se usa el conteo total guardado.
   const countedTotal =
@@ -608,6 +452,7 @@ export function CuadreReport({
       ["Movimientos"],
       [
         "Fecha",
+        "Tipo",
         "Recibo",
         "Dirección",
         "Categoría",
@@ -615,14 +460,16 @@ export function CuadreReport({
         "Importe",
         "Estado",
       ],
-      ...statement.map((payment) => [
-        payment.paymentDate,
-        payment.receiptNumber,
-        payment.direction,
-        payment.categoryName || "Sin categoría",
-        payment.methodName || "—",
-        payment.amount,
-        getOptionLabel(PAYMENT_STATUSES, payment.status),
+      ...statementRows.map((row) => [
+        row.date,
+        row.kind === "TRANSFER" ? "Transferencia" : "Recibo",
+        row.ref,
+        row.direction,
+        row.category,
+        row.method,
+        row.amount,
+        // Las transferencias no son recibos: no tienen estado de conciliación.
+        row.status ? getOptionLabel(PAYMENT_STATUSES, row.status) : "—",
       ]),
     ];
 
@@ -737,7 +584,8 @@ export function CuadreReport({
 
         <div className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">Movimientos</h3>
-          <MovementsTable statement={statement} currency={currency} />
+          {/* Sin `onMarkVerified` ni `onRegisterBankCharge`: son acciones de C7/conciliacion. */}
+          <StatementTable rows={statementRows} currency={currency} />
         </div>
       </CardContent>
 

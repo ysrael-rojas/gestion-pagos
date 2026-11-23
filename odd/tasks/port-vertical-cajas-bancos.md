@@ -49,6 +49,10 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
 
 ## Tasks
 
+Ordinales para delegacion, uno a uno con los identificadores de esta lista: T1=C1, T2=C2, T3=C3, T4=C4,
+T5=C5, T6=C6, T7=C7, T8=C8. El `C<n>` es el nombre historico del slice; el `T<n>` es el mismo slice
+con el identificador que exige la admision de escritores delegados. No son tareas distintas.
+
 - C1 — Settings: `GET/PATCH /settings`, `POST /settings/ensure` (cierra L67) + `lib/cajas-bancos/settings.ts`.
   Specs: S7, S6. Ruta: worker. **Hecho**: 7/7 del e2e nuevo, baseline de catálogos 6/6,
   typecheck api+web verde, commit: _(pendiente)_.
@@ -64,7 +68,9 @@ Fuente del port: `C:/Users/Lenovo/Desktop/devtalles/OpenCode/gestion-app` (solo 
   Specs: S1, S4. Ruta: worker. **Hecho**: 24 archivos, 26 tests unitarios nuevos verdes, typecheck
   verde. Commit: _(pendiente)_.
 - C6 — Transferencias, caja chica y extractos.
-  Specs: S5, S8. Ruta: pendiente. Commit: _(pendiente)_.
+  Specs: S5, S8. Ruta: dos workers en paralelo con superficies disjuntas (API y web). **Hecho**:
+  `cash-transfers.e2e` 8/8 y `petty-cash.e2e` 9/9 contra la base viva, 82/82 unitarios de la web
+  (eran 60), typecheck api+web 0, commits `5f08055` (api) y `b7cec9b` (web).
 - C7 — Conciliación, configuración y dashboard/proyección.
   Specs: S1, S2. Ruta: pendiente. Commit: _(pendiente)_.
 - C8 — e2e del vertical, teardown y baseline de las tablas de caja, RLS y docs.
@@ -89,6 +95,14 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   portado literal del origen; lo autorado de cero son los 4 helpers y sus 26 tests). **Es el slice
   más grande del vertical** y conviene revisarlo por pantalla, no por archivo: listado+cuentas,
   cuadres+cierre/arqueo, y acta/reporte impresos.
+- **Slice 5 — `5f08055` + `b7cec9b`** `feat(api)` y `feat(web)`: transferencias, caja chica y
+  extractos (C6). Van en DOS commits a propósito: ~3.200 líneas de API y ~7.100 de web, y el corte
+  real del slice es la capa, no el slice. **Revisar por comportamiento:** en `5f08055`
+  `cash.errors.ts` (la tabla mensaje→status, el reparto 404/400 y la rama 42501) y los mappers
+  `to*Record` de los dos servicios (numeric→number, date, ISO y la relectura dentro de la
+  transacción); en `b7cec9b` `cuentas-view.tsx` (el `refreshKey` y la intersección
+  cuentas∩posiciones) y `cuadre-report.tsx` (el `StatementTable` completo reemplaza a la tabla
+  reducida, y el CSV gana la columna `Tipo`).
 
 ## Log
 
@@ -163,6 +177,46 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   lo calcula con "hoy" local. Con las fechas alineadas, el test comparaba dos nociones distintas de
   hoy (0 !== 2). La expectativa usa ahora `APP_TODAY`; el API no se tocó, porque el correcto es el
   suyo: un comprobante que vence hoy no está vencido para el negocio.
+- **L15 — C6: el contrato de la base, y el hallazgo de que "extractos" no tiene contrato.** Verificado
+  contra las definiciones vivas antes de escribir una línea: `create_cash_transfer(5 args, sin
+  defaults) → uuid`, `create_petty_cash_vale(7 args) → uuid`, `replenish_petty_cash(3 args) → uuid`
+  (devuelve el `cash_transfer.id` que creó) y `void_petty_cash_vale(1 arg) → void`. Los cuatro son
+  `security definer`; los mensajes de negocio salen con SQLSTATE `P0001` y los triggers de
+  consistencia de dueño (`20261028194204:36,62`) con `42501`. **Extractos no existe como contrato:**
+  no hay tabla, función ni import en `packages/db` (grep por `statement|extracto|import` solo
+  devuelve columnas `statement_balance`). En el origen "extractos" es una vista de cliente sobre
+  `listAccountStatement` (pagos), que el port ya expone en `GET /cartera/statement/:accountId`: C6 lo
+  compone con `GET /cash-transfers?accountId&from&to` y no inventa backend para él. Consecuencia:
+  C6 no toca `packages/db` ni necesita migraciones, y `db:dump --check` sigue verde sin cambios — las
+  cinco tablas ya están en `schema-snapshot.sql`; lo que falta del baseline es el *conteo* del e2e
+  (L5), y eso es C8.
+  Se confirma además que estas tablas solo tienen política SELECT: `authenticated` conserva los
+  grants de escritura del blanket de `20261029101500:96`, así que el DML directo afecta 0 filas (L12a).
+  Toda escritura del slice va por RPC.
+- **L16 — C6: lo que el contrato de la base forzo.** (a) `void_petty_cash_vale` devuelve `void` y
+  `replenish_petty_cash` devuelve el `cash_transfer.id`, no los vales: el `{ id, status }` de la
+  anulacion y el estado `REPUESTO` de la reposicion son la fila RELEIDA dentro de la misma
+  transaccion, nunca un valor asumido. (b) La reposicion crea la transferencia con `current_date`
+  del contenedor y no con una fecha del cliente: el test lee la fecha de la fila en vez de fijarla.
+  (c) El mensaje del limite por vale tiene dos `%` y `p_amount` es `numeric` libre (`150`) mientras
+  `petty_expense_limit` es `numeric(12,2)` (`100.00`): se matchea por forma, no por igualdad. (d)
+  `createPettyCashValeSchema(expenseLimit)` no puede ser el body del API porque el limite es una
+  columna de la cuenta y el juez es la base — mismo criterio que L12(b): se usa el schema base y la
+  regla se prueba por el mensaje de la RPC.
+- **L17 — C6: `amount` es number, no string.** El brief del padre pedia `"150.00"` y la API devuelve
+  numero, como `closes` y `payments`. Se corrigio antes de que el slice web lo consumiera: no se
+  introduce una segunda convencion de serializacion en el mismo repo.
+- **L18 — C6: la deuda del transporte se cerro en el slice, no se anoto.** El worker web no podia
+  escribir en `lib/api/client.ts` (fuera de su superficie) y habia duplicado las seis lineas del
+  `fetch`. Se resolvio en el padre: `client.ts` exporta su `request` y
+  `lib/cajas-bancos/transporte.ts` lo reexporta. Duplicar dos veces el manejo de errores y las
+  credenciales es como divergen, y C7 habria producido una tercera copia.
+- **L19 — C6: lo que sigue sin probarse.** Ninguna pantalla de C6 se renderizo en un navegador (la
+  regla de L14 sigue vigente para los workers de UI): modales, panel de caja chica, extractos y el
+  reporte de cuadre estan probados por tipos y por los helpers puros, no por comportamiento. La
+  prueba real es el spec 09 de C8. `app-navbar.tsx` estaba fuera de las superficies del worker: la
+  entrada de Extractos la agrego el padre, y con ella se corrigio el comentario que decia "extractos
+  NO se enlaza".
 - **L6 — Orden de slices acordado (recon, seccion 7).** C1 settings, C2 cuentas, C3 posiciones,
   C4 cierres/arqueos, C5 pantallas base, C6 transferencias/caja chica, C7 conciliación y
   configuración, C8 e2e y RLS. C4 lleva riesgo 1 (irreversible) y 4 (concurrencia) y por eso va con
@@ -170,9 +224,9 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
 
 ## Estado para retomar (handoff)
 
-**Donde esta todo.** Rama `feat/vertical-cajas-bancos`, 6 commits sobre `main`, **sin push**. Cinco
-de los ocho slices estan hechos y verdes; C6, C7 y C8 no se empezaron. El documento de arriba es la
-spec, el plan y el log: una sesion nueva se lee de aca hasta `## Log` y arranca en C6.
+**Donde esta todo.** Rama `feat/vertical-cajas-bancos`, 9 commits sobre `main`, **sin push**. Seis
+de los ocho slices estan hechos y verdes; C7 y C8 no se empezaron. El documento de arriba es la
+spec, el plan y el log: una sesion nueva se lee de aca hasta `## Log` y arranca en C7.
 
 **Lo hecho, con su evidencia.**
 
@@ -183,23 +237,25 @@ spec, el plan y el log: una sesion nueva se lee de aca hasta `## Log` y arranca 
 | C3 posiciones y fechas | `5d958dd` | `cash-positions.e2e` 6/6 |
 | C4 cierres y arqueos | `20dd805` | `cash-closes.e2e` 12/12 + verificacion independiente |
 | C5 pantallas base | `509f684` | `pnpm --filter @gestion/web test` 60/60, typecheck 0 |
+| C6 transferencias y caja chica (API) | `5f08055` | `cash-transfers.e2e` 8/8, `petty-cash.e2e` 9/9 |
+| C6 transferencias, caja chica y extractos (web) | `b7cec9b` | `pnpm --filter @gestion/web test` 82/82 |
 
 Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despues de cada slice.
 
 **Lo que falta, en orden.**
-1. **C6** — transferencias (`create_cash_transfer`), caja chica (`create_petty_cash_vale`,
-   `replenish_petty_cash`, `void_petty_cash_vale`) y extractos. Riesgo 4 (correlativo de vale bajo
-   lock) y 1 (el vale genera un `payment`).
-2. **C7** — conciliacion (`save_bank_reconciliation`), configuracion (metodos de pago, categorias) y
-   dashboard/proyeccion.
-3. **C8** — e2e del vertical (la prueba real de las pantallas de C5), teardown y baseline de las
-   tablas de caja, RLS y docs. **Antes de escribir el spec 09**, ver "trampas".
+1. **C7** — conciliacion (`save_bank_reconciliation`: upsert por `(cuenta, periodo)` con partidas
+   delete-then-insert, `for update` sobre la cuenta, 9 mensajes de dominio), configuracion
+   (metodos de pago y categorias, que ya tienen lectura) y dashboard/proyeccion. Necesita su
+   prefijo `bank-reconciliations` en el puente y su propio mapa de errores.
+2. **C8** — e2e del vertical (la prueba real de las pantallas de C5 y C6), teardown y baseline de
+   las tablas de caja, RLS y docs. **Antes de escribir el spec 09**, ver "trampas".
 
 **Trampas que ya costaron tiempo, no las redescubras.**
 - **El puente se olvida.** Cada prefijo nuevo tiene que agregarse a `ALLOWED_PREFIXES` de
   `apps/web/app/api/backend/[...path]/route.ts`, o el navegador recibe 404 del puente con la ruta
-  viva en el API. Paso con C3 (`cash-positions`, `last-movement-dates`) y con C4 (`cash-closes`,
-  `cash-counts`). C6 y C7 van a necesitar los suyos.
+  viva en el API. Paso con C3 (`cash-positions`, `last-movement-dates`), con C4 (`cash-closes`,
+  `cash-counts`) y con C6 (`cash-transfers`, `petty-cash`). C7 va a necesitar el suyo
+  (`bank-reconciliations`).
 - **Teardown y baseline (L5).** `deleteOwnerFixtures` borra `cash_account` antes que
   `cash_transfer`, `cash_count`, `cash_close_denomination` y `bank_reconciliation`, y el baseline de
   `e2e/support/database.ts` no cuenta esas tablas: el primer spec de cajas revienta por FK. C8 lo
@@ -222,14 +278,16 @@ Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despu
 **Deudas abiertas, con su referencia.**
 - L13 — el provider hidrata la fila completa de cada cuenta con un `GET /cash-accounts/:id` (N+1).
   La salida limpia es un `GET /cash-accounts?full=1` aditivo.
-- L14 — **ninguna pantalla de C5 se probo en un navegador**; la prueba es el spec de C8.
+- L14 — **ninguna pantalla de C5 se probo en un navegador**; la prueba es el spec de C8. L19 dice lo
+  mismo de C6.
 - L12(a) — `authenticated` conserva UPDATE/DELETE sobre `cash_count` y las tablas de denominaciones
   (solo `cash_close` esta re-revokeado); sin politica de UPDATE/DELETE esas sentencias afectan 0
-  filas, no fallan. Inocuo hoy, anotado.
-- L8 — `apps/api/src/db/schema/index.ts` no exporta los schemas nuevos (los servicios importan
-  directo).
-- C6/C7 necesitaran sus propios prefijos en el puente y su propio mapa de errores si aparece un
-  CHECK nuevo.
+  filas, no fallan. Inocuo hoy, anotado. Aplica igual a `cash_transfer`, `petty_cash_vale` y
+  `bank_reconciliation*`: todas tienen politica SELECT unicamente.
+- L8 — `apps/api/src/db/schema/index.ts` no exporta los schemas nuevos (`cash_transfer`,
+  `petty_cash_vale` y los dos de C7 cuando lleguen): los servicios importan directo.
+- C7 necesitara su propio prefijo en el puente (`bank-reconciliations`) y su mapa de errores para
+  los 9 mensajes de `save_bank_reconciliation`.
 
 **Publicacion.** El vertical supera las 11.000 lineas en 6 commits: cuando se publique, la forma
 natural es PR encadenado (API C1-C4, UI C5-C7, e2e C8) o un PR unico con el orden de los commits

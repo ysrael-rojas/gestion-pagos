@@ -166,7 +166,7 @@ docker exec gestion-pagos-db-dev pg_isready -U <usuario> -d <base>
 
 # 4) Esquema y datos.
 export DATABASE_URL=postgresql://<usuario>:<clave>@127.0.0.1:5434/<base>
-pnpm --filter @gestion/db db:verify     # 50 migraciones
+pnpm --filter @gestion/db db:verify     # todas las migraciones de packages/db/migrations
 pnpm --filter @gestion/db db:seed       # 5 seeds, en el orden de S20
 pnpm --filter @gestion/db db:dump --check
 

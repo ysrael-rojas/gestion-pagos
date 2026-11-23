@@ -13,8 +13,11 @@
 // reordenar el resto: "Maestro" ya es una ruta real (`/clientes/listado`, T5c) y por eso se
 // enlaza como los pagos. "Caja y bancos" (C5 del vertical de cajas-bancos) hace lo mismo con SUS
 // pantallas portadas: el origen era un desplegable de seis entradas y aca quedan seis enlaces
-// directos, con las etiquetas del origen. "Resumen" apunta a `/`, que hoy es el inventario del
-// UI-kit; el dashboard de tesoreria vive en `/cajas-bancos` y se entra por "Caja y bancos".
+// directos, con las etiquetas del origen. "Resumen" apunta al dashboard de tesoreria
+// (`/cajas-bancos`), que es lo que el origen mostraba como resumen; el inventario del UI-kit que
+// antes vivia en `/` ya no esta en la barra y se alcanza por URL directa. Como "Caja y bancos" es
+// la entrada de la seccion y Resumen el atajo al dashboard, ambas comparten destino: Resumen se
+// resalta solo en la ruta exacta para no marcar dos entradas en cada subpantalla.
 // "Extractos" se enlazo en C6 y "Conciliacion" y "Configuracion" en C7, cuando su API quedo
 // expuesta (bank-reconciliations, cash-flow, payment-methods, receipt-categories y settings).
 
@@ -70,7 +73,7 @@ type PendingGroup = {
 
 /** Rutas que existen hoy en `apps/web`. */
 const LINKS: NavLink[] = [
-  { label: "Resumen", href: "/", icon: LayoutDashboard },
+  { label: "Resumen", href: "/cajas-bancos", icon: LayoutDashboard, exact: true },
   // Vertical de pagos (T5b2). En el origen era un desplegable "Pagos" con dos entradas; aca se
   // enlazan las dos directamente, sin cambiar el mapa de la app ni inventar rutas.
   { label: "Ingresos", href: "/pagos/ingresos", icon: ArrowDownCircle },
@@ -138,7 +141,7 @@ export function AppNavbar({ user }: { user: SessionUser }) {
               * sobrante es de la raiz, no de la lista. */}
             <NavigationMenuList className="justify-start">
               {LINKS.map((item) => (
-                <NavigationMenuItem key={item.href}>
+                <NavigationMenuItem key={item.label}>
                   <NavigationMenuLink
                     active={isPathActive(pathname, item.href, item.exact)}
                     render={<Link href={item.href} />}

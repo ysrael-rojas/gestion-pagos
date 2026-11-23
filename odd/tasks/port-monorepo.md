@@ -596,14 +596,18 @@ los más entrelazados porque arrastran comprobantes y saldos.
 - `receipt_sequence` en 104 en `gestion_pagos_dev` por pagos reales de los tests.
 
 **Entorno de esta máquina (esto cuesta horas si se redescubre).**
-- `docker` y `gh` **no están en el PATH** de la shell de Pi y hay que invocarlos por ruta absoluta:
-  `/c/Users/Lenovo/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe` y
-  `/c/Program Files/GitHub CLI/gh.exe`.
-- `gh` necesita `GH_CONFIG_DIR="C:/Users/Lenovo/AppData/Roaming/GitHub CLI"` porque `APPDATA` está
-  redirigido al home de Gentle Shell.
-- `/tmp` no existe: usar `$PWD/.cache/tmp`.
-- `pnpm` sólo se alcanza vía `corepack`; Turborepo además necesita un binario en el PATH, así que hay
-  un shim en `.cache/bin`. Con eso: `COREPACK_HOME="$PWD/.cache/corepack" PATH="$PWD/.cache/bin:$PATH"`.
+- **Resuelto (L79).** La shell de Pi no hereda el PATH de Windows; usa uno curado que incluye
+  `install/home/bin`. Ahí viven ahora shims `docker`, `gh`, `pnpm` (y sus variantes `.cmd`) que
+  hornean la ruta absoluta y `GH_CONFIG_DIR`. `docker`, `gh` y `pnpm` se invocan sin prefijos ni
+  rutas absolutas: `docker --version`, `gh auth status` y `pnpm turbo run …` responden directo.
+  Si un update de Gentle Shell pisa `install/home/bin`, los comandos vuelven a faltar: recreá los
+  shims con las rutas absolutas de abajo.
+- Rutas reales de los binarios: `/c/Users/Lenovo/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe`,
+  `/c/Program Files/GitHub CLI/gh.exe`, `install/runtime/node/corepack` (pnpm).
+- `gh` necesita `GH_CONFIG_DIR="C:/Users/Lenovo/AppData/Roaming/GitHub CLI"` (ya lo fija el shim), porque
+  `APPDATA` está redirigido al home de Gentle Shell.
+- `/tmp` no existe y `bash.exe` avisa en cada comando: es cosmético, `TMPDIR`/`TEMP` apuntan a
+  `install/tmp/…`.
 - **Los comandos de entrega van solos**: un `git push` encadenado con `cd … &&` hace que el guard de
   RDD no ejecute *ninguno* de los comandos del encadenado (L56/L63).
 - RDD está **apagado sólo en este clon** (`review mode disable --scope clone`) por el estado nativo

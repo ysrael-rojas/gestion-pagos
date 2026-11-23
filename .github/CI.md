@@ -44,15 +44,16 @@ executed". Agregar el paso seria un verde vacio.
 | 7 | **drift guard** | `pnpm --filter @gestion/db db:dump --check` |
 | 8 | seeds en el orden de S20 | `pnpm --filter @gestion/db db:seed` |
 | 9 | auditoria de RLS (S19, 8 bloques) | `pnpm --filter @gestion/db db:verify-rls` |
-| 10 | aislamiento por dueno (42 aserciones) | `pnpm --filter @gestion/db db:check-rls` |
+| 10 | aislamiento por dueno (46 aserciones) | `pnpm --filter @gestion/db db:check-rls` |
 
-### `e2e` -- los verticales de pagos y clientes con Playwright
+### `e2e` -- los verticales de pagos, clientes y cajas-bancos con Playwright
 
-T7 (pagos) + T5c (clientes). Levanta los DOS procesos reales (`apps/api` compilado con esbuild y
-`next build` + `next start`) sobre una base migrada y sembrada, y recorre los verticales como los
-usa una persona: sin sesion -> login -> listado vacio -> alta con asignacion -> anulacion -> error
-de dominio -> cierre de sesion (pagos), y listado vacio -> alta -> documento duplicado -> edicion ->
-baja logica -> documento invalido (clientes).
+T7 (pagos) + T5c (clientes) + T5c/C8 (cajas-bancos). Levanta los DOS procesos reales (`apps/api`
+compilado con esbuild y `next build` + `next start`) sobre una base migrada y sembrada, y recorre
+los verticales como los usa una persona: sin sesion -> login -> listado vacio -> alta con asignacion
+-> anulacion -> error de dominio -> cierre de sesion (pagos); listado vacio -> alta -> documento
+duplicado -> edicion -> baja logica -> documento invalido (clientes); y dashboard -> alta de cuenta
+-> transferencia -> extractos -> vale de caja chica -> conciliacion -> configuracion (cajas-bancos).
 
 | # | paso | comando |
 | --- | --- | --- |
@@ -61,7 +62,7 @@ baja logica -> documento invalido (clientes).
 | 6 | las 50 migraciones | `pnpm --filter @gestion/db db:verify` |
 | 7 | seeds en el orden de S20 (la demo tiene que existir) | `pnpm --filter @gestion/db db:seed` |
 | 8 | **solo Chromium**, con sus dependencias de sistema | `pnpm --filter @gestion/web exec playwright install --with-deps chromium` |
-| 9 | **los 16 tests de los 8 specs** | `pnpm e2e` |
+| 9 | **los 22 tests de los 9 specs** | `pnpm e2e` |
 
 Un solo comando (`pnpm e2e` -> `turbo run e2e` -> `playwright test`): el `webServer` de
 `apps/web/playwright.config.ts` compila y levanta el API y la web, espera a que respondan y los
@@ -285,6 +286,8 @@ build viejo es peor que no tener e2e.
 | `05-void-payment` | anular desde el listado: el estado pasa a Anulado y la accion de anular desaparece |
 | `06-domain-error` | el mensaje del dominio llega **verbatim** a la notificacion ("La cuenta de caja no existe") y el pago no se crea; dos casos: cuenta de otro dueno y cuenta inexistente |
 | `07-sign-out` | cerrar sesion revoca la sesion (`auth.session` vuelve a 0) y las rutas protegidas vuelven a `/login` |
+| `08-clientes` | el maestro de clientes: listado vacio, alta por el formulario, documento duplicado rechazado con el mensaje del API, edicion y baja logica |
+| `09-cajas-bancos` | el vertical de cajas-bancos de punta a punta: el dashboard como raiz del vertical, el alta de una cuenta bancaria por el formulario con su saldo calculado en la base, una transferencia entre cuentas que aparece en extractos, un vale de caja chica que se crea y se anula dejando su recibo anulado, una conciliacion guardada con su acta renderizada, y el interruptor de una categoria en configuracion |
 
 ### Determinismo
 

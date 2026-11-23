@@ -172,7 +172,7 @@ jobs:
       - name: Auditoria de RLS (S19)
         run: pnpm --filter @gestion/db db:verify-rls
 
-      # 42 aserciones end-to-end: RLS + privilegios + `set local role authenticated`, en una base
+      # 46 aserciones end-to-end: RLS + privilegios + `set local role authenticated`, en una base
       # scratch que el propio script crea, migra y borra.
       - name: Aislamiento por dueno desde la ruta de la aplicacion
         run: pnpm --filter @gestion/db db:check-rls

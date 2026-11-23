@@ -235,6 +235,14 @@ export class BankReconciliationsService {
 	 * La cabecera que matchea `condition` (mas el filtro de dueno) con sus partidas, en el orden del
 	 * origen (`created_at` ascendente), o `null` si no hay ninguna.
 	 *
+	 * Un defecto real que encontro la verificacion independiente de este slice: esto no es atomico.
+	 * Son DOS sentencias bajo READ COMMITTED (el pool no fija otro nivel), asi que un guardado
+	 * concurrente puede devolver el encabezado de una version y las partidas de la siguiente. No
+	 * importa para el uso real — una conciliacion por periodo y por dueno, un usuario por cuenta — y
+	 * arreglarlo costaria serializar tambien la lectura. El camino de ESCRITURA si es atomico, porque
+	 * la RPC toma `for update` sobre la cuenta antes del upsert. Queda escrito para que nadie vuelva
+	 * a decir que esta lectura es "la misma transaccion": no lo es.
+	 *
 	 * El join de las partidas es para poder filtrar por dueno: `bank_reconciliation_item` no tiene
 	 * `owner_id` (lo hereda del padre, y su politica RLS lo resuelve con un `exists`). La politica ya
 	 * deja invisible la partida ajena, asi que este `where` no cambia ninguna respuesta observable;

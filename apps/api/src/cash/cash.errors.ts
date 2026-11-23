@@ -355,7 +355,15 @@ function reconciliationStatusOf(message: string): 404 | 400 {
 	return RECONCILIATION_ACCOUNT_MISSING.test(message) ? 404 : 400;
 }
 
-/** `23505` sobre el triplete `(cash_account_id, period_start, period_end)`. */
+/**
+ * `23505` sobre el triplete `(cash_account_id, period_start, period_end)`.
+ *
+ * MUERTO por esta ruta, y el comentario anterior decia lo contrario: la RPC hace
+ * `on conflict (cash_account_id, period_start, period_end) do update`, asi que ese indice no puede
+ * levantar `23505`, y el INSERT directo esta bloqueado por los revokes y por la politica SELECT.
+ * Se conserva por simetria con los otros mapeos, pero que nadie lea aca un guard de duplicados de
+ * la conciliacion: el que existe es el upsert, y PISA la fila anterior.
+ */
 export const DUPLICATE_RECONCILIATION_MESSAGE = "Ya existe una conciliación para ese período.";
 
 /**

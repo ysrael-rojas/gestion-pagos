@@ -26,9 +26,30 @@ import { z } from "zod";
 
 const uuid = z.string().uuid("El identificador debe ser un uuid.");
 
+/**
+ * Una fecha que EXISTE en el calendario, no solo una que cumple el formato.
+ *
+ * `2026-02-31` y `2026-13-01` pasan el regex y no existen. Hoy llegan al `::date` de la RPC, que
+ * falla con SQLSTATE `22008` (`date/time field value out of range`); ese codigo no es un mensaje de
+ * dominio, asi que el borde lo trataba como error interno y respondia 500 por un dato que el usuario
+ * puede corregir. Esta regla no le quita el juicio a la base: solo adelanta el unico caso en que la
+ * base no puede redactar un mensaje util.
+ */
+function isRealCalendarDate(value: string): boolean {
+	const [year, month, day] = value.split("-").map(Number);
+	const parsed = new Date(Date.UTC(year, month - 1, day));
+
+	return (
+		parsed.getUTCFullYear() === year &&
+		parsed.getUTCMonth() === month - 1 &&
+		parsed.getUTCDate() === day
+	);
+}
+
 const isoDate = z
 	.string()
 	.regex(/^\d{4}-\d{2}-\d{2}$/, "Usa el formato YYYY-MM-DD.")
+	.refine(isRealCalendarDate, "La fecha no existe en el calendario.")
 	.describe("Fecha en formato YYYY-MM-DD");
 
 /**
@@ -51,7 +72,8 @@ const reconciliationItemBodySchema = z.object({
  * Los cinco campos que la RPC exige son opcionales en el borde porque es ella la que responde
  * `Indica la cuenta bancaria a conciliar` / `Indica el saldo según extracto y el saldo según
  * registros` (y `El período de la conciliación no es válido` cuando falta una fecha o el periodo
- * esta invertido). El formulario de la web los manda siempre.
+ * esta invertido). El formulario de la web los manda siempre. `items` es la excepcion: no puede ser
+ * opcional, por lo que explica su propio comentario.
  */
 export const bankReconciliationBodySchema = z.object({
 	accountId: uuid.optional(),
@@ -63,7 +85,15 @@ export const bankReconciliationBodySchema = z.object({
 	preparedBy: z.string().nullish(),
 	reviewedBy: z.string().nullish(),
 	notes: z.string().nullish(),
-	items: z.array(reconciliationItemBodySchema).default([]),
+	/**
+	 * OBLIGATORIO, y era el bug: con `.default([])` un cliente que mandaba solo el encabezado (por
+	 * ejemplo para corregir el nombre de quien reviso) enviaba `p_items = '[]'`, y la RPC borra e
+	 * reinserta las partidas — el acta quedaba VACIA y la respuesta decia 201. El contrato del origen
+	 * tambien lo exige (`SaveReconciliationInput.items: ReconciliationItem[]`), asi que el default
+	 * era una relajacion del port, no una decision de la base. Un acta sin partidas se sigue pudiendo
+	 * guardar: se manda `items: []` a proposito.
+	 */
+	items: z.array(reconciliationItemBodySchema),
 });
 
 export type BankReconciliationBody = z.output<typeof bankReconciliationBodySchema>;

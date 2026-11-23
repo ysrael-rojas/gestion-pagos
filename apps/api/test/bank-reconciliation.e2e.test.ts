@@ -428,6 +428,9 @@ test("las ocho reglas de dominio de la RPC llegan a HTTP con su mensaje exacto y
 		periodEnd: PERIOD_END,
 		statementBalance: 100,
 		booksBalance: 100,
+		// Obligatorio desde el hardening de C7: sin `items` el borde responde 400 y el caso nunca
+		// llegaria a la RPC, que es justo lo que este test quiere ejercitar.
+		items: [],
 	};
 
 	const cases: Array<{
@@ -462,7 +465,12 @@ test("las ocho reglas de dominio de la RPC llegan a HTTP con su mensaje exacto y
 		},
 		{
 			name: "sin saldos",
-			body: { accountId: accounts.secondBank, periodStart: PERIOD_START, periodEnd: PERIOD_END },
+			body: {
+				accountId: accounts.secondBank,
+				periodStart: PERIOD_START,
+				periodEnd: PERIOD_END,
+				items: [],
+			},
 			status: 400,
 			message: "Indica el saldo según extracto y el saldo según registros",
 		},
@@ -640,4 +648,90 @@ test("las rutas de conciliacion validan la query y el id con el pipe de Zod", as
 
 		assert.equal(result.status, 400, `${path} deberia responder 400`);
 	}
+});
+
+// Este test y el siguiente son la REGRESION de lo que encontro la verificacion independiente del
+// slice: `items` opcional con `default([])` hacia que un POST de solo encabezado llegara a la RPC
+// con `p_items = '[]'`, y la RPC borra y reinserta — el acta quedaba vacida con un 201.
+test("POST sin items responde 400 y deja el acta guardada intacta", async () => {
+	const OTHER_START = "2025-11-01";
+	const OTHER_END = "2025-11-30";
+	const before = await stored(accounts.secondBank);
+
+	const created = await call("POST", "/bank-reconciliations", {
+		cookie: owner.cookie,
+		body: {
+			accountId: accounts.secondBank,
+			periodStart: OTHER_START,
+			periodEnd: OTHER_END,
+			statementBalance: 100,
+			booksBalance: 100,
+			items: [{ kind: "DEPOSITO_EN_TRANSITO", description: "Deposito pendiente", amount: 10 }],
+		},
+	});
+
+	assert.equal(created.status, 201, JSON.stringify(created.body));
+	assert.deepEqual(await stored(accounts.secondBank), {
+		rows: before.rows + 1,
+		items: before.items + 1,
+	});
+
+	// El caso del defecto: el encabezado solo, sin `items`.
+	const withoutItems = await call("POST", "/bank-reconciliations", {
+		cookie: owner.cookie,
+		body: {
+			accountId: accounts.secondBank,
+			periodStart: OTHER_START,
+			periodEnd: OTHER_END,
+			statementBalance: 100,
+			booksBalance: 100,
+			preparedBy: "Otra persona",
+		},
+	});
+
+	assert.equal(withoutItems.status, 400, JSON.stringify(withoutItems.body));
+	assert.deepEqual(
+		await stored(accounts.secondBank),
+		{ rows: before.rows + 1, items: before.items + 1 },
+		"la partida tiene que seguir ahi: el rechazo no puede haber vaciado el acta",
+	);
+
+	// Y el acta vacia a proposito sigue siendo valida: el campo es obligatorio, no no-vacio.
+	const emptyOnPurpose = await call("POST", "/bank-reconciliations", {
+		cookie: owner.cookie,
+		body: {
+			accountId: accounts.secondBank,
+			periodStart: OTHER_START,
+			periodEnd: OTHER_END,
+			statementBalance: 100,
+			booksBalance: 100,
+			items: [],
+		},
+	});
+
+	assert.equal(emptyOnPurpose.status, 201, JSON.stringify(emptyOnPurpose.body));
+	assert.deepEqual(await stored(accounts.secondBank), {
+		rows: before.rows + 1,
+		items: before.items,
+	});
+});
+
+test("una fecha que no existe en el calendario responde 400 y no llega a la base", async () => {
+	const before = await stored(accounts.bank);
+
+	const impossible = await call("POST", "/bank-reconciliations", {
+		cookie: owner.cookie,
+		body: {
+			accountId: accounts.bank,
+			periodStart: "2026-02-31",
+			periodEnd: PERIOD_END,
+			statementBalance: 100,
+			booksBalance: 100,
+			items: [],
+		},
+	});
+
+	// Sin la regla del calendario esto llegaba al `::date` y salia un 500 por SQLSTATE 22008.
+	assert.equal(impossible.status, 400, JSON.stringify(impossible.body));
+	assert.deepEqual(await stored(accounts.bank), before, "no se escribe nada con una fecha imposible");
 });

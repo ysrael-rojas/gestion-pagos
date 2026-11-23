@@ -7,7 +7,7 @@
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --watch",
     "start": "node dist/main.js",
-    "test": "node --test --experimental-transform-types \"test/**/*.test.ts\"",
+    "test": "node --test --experimental-transform-types --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

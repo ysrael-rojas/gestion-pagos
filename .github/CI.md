@@ -23,7 +23,7 @@ Tres jobs en paralelo, cada uno con su propio `postgres:18` de servicio (virgen)
 | 5 | migraciones (la API las necesita) | `pnpm --filter @gestion/db db:verify` |
 | 6 | seeds en el orden de S20 | `pnpm --filter @gestion/db db:seed` |
 | 7 | tipos de los 4 paquetes | `pnpm typecheck` (turbo) |
-| 8 | tests | `pnpm test` (turbo; `@gestion/api` 39 y `@gestion/web` 34) |
+| 8 | tests | `pnpm test` (turbo; `@gestion/api` 130, con `--test-concurrency=1` porque sus e2e comparten el dueño demo y su credencial; `@gestion/web` 106) |
 | 9 | build de todos los paquetes | `pnpm build` (turbo) |
 | 10 | **build frio de la web** | `rm -rf apps/web/.next && pnpm --filter @gestion/web build` |
 

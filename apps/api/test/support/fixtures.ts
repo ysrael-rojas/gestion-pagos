@@ -117,6 +117,15 @@ export async function signIn(auth: Auth, email: string, password: string): Promi
  * `signUpEmail` no sirve: el email ya existe en `auth.users` (lo creo `00-demo-user.sql`). Se
  * inserta la fila `auth.account` con `provider_id = 'credential'` y el hash en el formato de
  * Better Auth, que es lo unico que `signInEmail` busca.
+ *
+ * OJO: el dueno demo es un ACTOR COMPARTIDO. `cash-settings`, `catalogs`, `payments` y `entities`
+ * dan credencial al mismo `auth.users` y la revocan en su `after`. Con los archivos corriendo en
+ * procesos paralelos sobre la misma base, el `revokeDemoCredential` de un spec borraba la
+ * credencial que otro estaba usando: el sintoma era `Invalid email or password` (o `23503` sobre
+ * `account_user_id_fkey` cuando el dueno elegido por `findSeededOwnerId` ya habia sido borrado).
+ * Por eso `apps/api` corre sus tests con `--test-concurrency=1`: es la contencion correcta mientras
+ * el actor siga siendo compartido. Si algun dia cada spec levanta su propio dueno con datos
+ * sembrados, la bandera se puede sacar.
  */
 export async function grantDemoCredential(pool: Pool, ownerId: string): Promise<string> {
 	const email = await demoOwnerEmail(pool, ownerId);

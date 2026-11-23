@@ -40,7 +40,7 @@ executed". Agregar el paso seria un verde vacio.
 | --- | --- | --- |
 | 1-4 | checkout, node 22, corepack, install | igual que `checks` |
 | 5 | cliente de postgres | `sudo apt-get update && sudo apt-get install -y postgresql-client` |
-| 6 | las 50 migraciones sobre base virgen | `pnpm --filter @gestion/db db:verify` |
+| 6 | todas las migraciones de `packages/db/migrations/` sobre base virgen | `pnpm --filter @gestion/db db:verify` |
 | 7 | **drift guard** | `pnpm --filter @gestion/db db:dump --check` |
 | 8 | seeds en el orden de S20 | `pnpm --filter @gestion/db db:seed` |
 | 9 | auditoria de RLS (S19, 8 bloques) | `pnpm --filter @gestion/db db:verify-rls` |
@@ -59,7 +59,7 @@ duplicado -> edicion -> baja logica -> documento invalido (clientes); y dashboar
 | --- | --- | --- |
 | 1-4 | checkout, node 22, corepack, install | igual que `checks` |
 | 5 | cliente de postgres (transporte de psql del suite) | `sudo apt-get update && sudo apt-get install -y postgresql-client` |
-| 6 | las 50 migraciones | `pnpm --filter @gestion/db db:verify` |
+| 6 | todas las migraciones | `pnpm --filter @gestion/db db:verify` |
 | 7 | seeds en el orden de S20 (la demo tiene que existir) | `pnpm --filter @gestion/db db:seed` |
 | 8 | **solo Chromium**, con sus dependencias de sistema | `pnpm --filter @gestion/web exec playwright install --with-deps chromium` |
 | 9 | **los 22 tests de los 9 specs** | `pnpm e2e` |
@@ -248,7 +248,7 @@ clases de entrada de ACL, y las dos son una reduccion deliberada de su alcance:
 Todo lo demas se compara tal cual, incluidos los grants a `authenticated`, `anon` y
 `service_role`, los de tabla y los **de columna** del hardening `20261012221550` (L30/L31).
 
-Portabilidad probada con dos bases migradas con las mismas 50 migraciones y creadas de forma
+Portabilidad probada con dos bases migradas con la misma lista de migraciones y creadas de forma
 distinta: una del `postgres:18` del CI (`public` de `template1`) y otra reseteada a mano con
 `drop schema public cascade; create schema public;` como superusuario (la forma de
 `gestion_pagos_dev`, L32). Las dos dan `db:dump --check` exit 0 contra el mismo snapshot

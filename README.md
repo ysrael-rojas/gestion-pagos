@@ -29,7 +29,8 @@ corepack enable && pnpm install --frozen-lockfile
 # 2) La base (atajo de este comando: `pnpm db:up`; para bajarla, `pnpm db:down`)
 docker compose --env-file .env.dev --profile dev up -d
 
-# 3) Esquema y datos de demo (50 migraciones + 5 seeds; el seed no es idempotente)
+# 3) Esquema y datos de demo (las migraciones de packages/db/migrations —el numero lo da
+#    `ls packages/db/migrations/*.sql | wc -l`— + 5 seeds; el seed no es idempotente)
 export DATABASE_URL=postgresql://<usuario>:<clave>@127.0.0.1:5434/<base>
 pnpm --filter @gestion/db db:verify
 pnpm --filter @gestion/db db:seed

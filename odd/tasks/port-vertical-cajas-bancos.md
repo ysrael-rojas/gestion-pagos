@@ -296,6 +296,41 @@ Rama `feat/vertical-cajas-bancos`. Un commit por slice.
   mueve la UX de la barra y merece su propia decisión, no un cambio silencioso dentro de una
   limpieza de deudas.
 
+- **L28 — L12(a) cerrada, y la premisa de L25 era falsa.** L25 afirmaba que revocar UPDATE/DELETE en
+  las tablas de cajas "exige grants por columna" porque anular un vale es un UPDATE. El camino de
+  escritura no pasa por `authenticated`: `void_petty_cash_vale` es
+  `language plpgsql security definer set search_path = ''` (`20261027202217:131-132`) y
+  `close_cash_account` también (`20261006063301:249`), así que corren como el dueño de la tabla.
+  Grants por columna habrían sido **privilegio muerto**. El precedente que parecía respaldar la
+  premisa —`payment` con cuatro columnas— declara su motivo en `20261029101500:120-141`: converger
+  al ACL del origen, no una necesidad de código. Y el patrón ya funcionaba acá: `cash_close` tiene
+  UPDATE/DELETE revocados desde `20261029101500:136` y `close_cash_account` la escribe hoy.
+
+  Revoke aplicado sobre las siete tablas que sólo escriben las RPC: `cash_transfer`,
+  `petty_cash_vale`, `cash_count`, `cash_close_denomination`, `cash_count_denomination`,
+  `bank_reconciliation`, `bank_reconciliation_item`. **`cash_account` y `app_setting` quedan
+  fuera**: la API las escribe con DML directo (`cash-accounts.service.ts`, `settings.service.ts`) y
+  revocar ahí rompe la pantalla de cuentas y la de configuración. El `INSERT` de las siete
+  tampoco se toca: sin política de INSERT ya afecta 0 filas, o sea que es inerte, y revocarlo habría
+  ampliado el alcance sin pedido.
+
+  Evidencia: grants de `authenticated` en esas siete tablas **28 filas → 14** (antes/después medido
+  en `information_schema.role_table_grants`); `db:check-rls` **47/47**, con 5 aserciones fallando
+  antes de la migración (las F y G de `cash_transfer`/`petty_cash_vale`/`bank_reconciliation`
+  aceptaban el privilegio, y el nuevo grupo M listaba los 14 privilegios concedidos); snapshot
+  `-14 líneas`, exactamente los siete pares UPDATE/DELETE; `db:dump --check` verde; suite del API
+  **130/130**. El código que escribe por RPC no cambió: lo demuestra la suite, no una lectura.
+
+  Rama `refactor/revoke-cash-writes`, migración `20261123165000_revoke_cash_writes.sql`. Detalle y
+  decisiones en `odd/tasks/l12-revoke-cash-writes.md`.
+
+- **L28(b) — L27(b) resuelta, decidido por el humano.** "Resumen" **se borra** de la barra y
+  "Caja y bancos" queda como entrada única al dashboard (`/cajas-bancos`): esta app no tiene una
+  pantalla de resumen general (`/` es el inventario del UI-kit), así que la etiqueta "Resumen"
+  prometía algo inexistente, y las cinco entradas siguientes son hijas de esa sección. En
+  `fix/navbar-resumen-dashboard` (PR #12). La barra baja a 14 entradas, que también ayuda con el
+  desborde documentado en `app-navbar.tsx`.
+
 ## Estado para retomar (handoff)
 
 **Donde esta todo.** Rama `feat/vertical-cajas-bancos`, 19 commits sobre `main`, **sin push**. Los
@@ -324,8 +359,9 @@ Estado del API verificado junto: `payments.e2e` 18/18 y `catalogs.e2e` 6/6 despu
 
 **Lo que falta, en orden.**
 1. **Publicar** (decision del humano): PR encadenado o unico. El vertical supera las 11.000 lineas.
-2. **Deuda L12(a), con la matriz ya medida en L25**: revocar UPDATE/DELETE en las tablas de cajas
-   exige grants por columna para la anulacion del vale. Slice propio, con verificacion independiente.
+2. **L12(a) — CERRADA, ver L28.** La premisa de L25 era falsa: revocar UPDATE/DELETE en las
+   tablas de cajas **no** exigia grants por columna. Revoke aplicado en
+   `20261123165000_revoke_cash_writes.sql`, con `db:check-rls` en 47/47.
 3. **Deuda de entorno (L26)**: `db-dev` sin politica de reinicio y `docker compose` no operable en
    esta instalacion. Nada de esto es del producto.
 

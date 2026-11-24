@@ -121,8 +121,8 @@ al menos `voucherFormSchema` se usa en el form y en el API.
 | T2 | S6, S7, S8 | worker: migración con `crear_venta`/`editar_venta` + `advance_series_number`, grants y tests SQL | hecho (L10) |
 | T3 | S5, S6, S9 | worker: módulo `vouchers` en `apps/api` (controller, service, mapa de errores) + e2e | hecho (L11) |
 | T4 | S5, S9, S10 | worker: `apps/web/lib/ventas` y `components/ventas` + form y detalle compartidos | hecho (L12) |
-| T5 | S10, S11 | worker: ruta `/ventas`, navbar, allowlist del BFF, `specs/10-ventas.spec.ts` | pendiente |
-| T6 | S11 | parent: docs (`docs/operacion/` si hace falta), log y cierre del slice | pendiente |
+| T5 | S10, S11 | worker: ruta `/ventas`, navbar, allowlist del BFF, `specs/10-ventas.spec.ts` | hecho (L14) |
+| T6 | S11 | parent: docs (`docs/operacion/` si hace falta), log y cierre del slice | hecho (L14) |
 
 ## Log
 
@@ -236,6 +236,24 @@ existe endpoint de series (la UI de `/configuracion` está fuera del slice 1), a
 **L13** (decisión): `voucherFormSchema` acepta `null` en `creditDays` (se trata como ausente, igual
 que `""`) para que su output sea input válido. El error de S4 de `CREDITO` sin días no cambia,
 porque el `superRefine` sigue mirando `== null` después del schema.
+
+**L14** (evidencia, T5 y T6 cerradas): las cuatro páginas de `apps/web/app/(app)/ventas/`
+(listado, `nuevo`, `[id]`, `[id]/editar`), `Ventas` promovida de `PENDING_GROUPS` a `LINKS` en el
+navbar, y `apps/web/e2e/specs/10-ventas.spec.ts` con los cuatro casos de S11 más
+`apps/web/e2e/support/ventas-fixtures.ts`. La allowlist del BFF **ya tenía** `vouchers` con
+get/post/patch: no hubo que abrir nada, era cierta la trampa del doc pero ya estaba resuelta.
+
+Evidencia: `pnpm e2e` **26/26** (22 previos + 4 nuevos, 7m03 de pared, teardown con los conteos de
+las 20 tablas idénticos al baseline), `pnpm --filter @gestion/web build` en 0 con las cuatro rutas
+dinámicas (ƒ, sin necesidad de `Suspense`), web 158/158 y typecheck 4/4. Contadores de
+`.github/CI.md` actualizados (API 135→173, web 106→158) y fila `10-ventas` agregada al catálogo de
+specs.
+
+Lo que queda deliberadamente afuera del slice 1, para que no sorprenda: la UI de series en
+`/configuracion` (por eso tres textos de S5 solo se pintan si alguien pasa `series`), notas de
+crédito/débito, retenciones y el vertical de compras (`VOUCHER_SOURCES.COMPRA` rechaza con un
+mensaje explícito hasta que exista). Publicar la rama (push/PR) es decisión del humano: los
+commits del slice están en `feat/vertical-ventas`.
 
 
 

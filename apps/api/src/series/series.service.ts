@@ -41,7 +41,7 @@ import { withOwner } from "../db/with-owner";
 import { seriesNotFound, toSeriesHttpException } from "./series.errors.ts";
 import type { SerieCreateBody, SerieEditBody } from "./series.query.ts";
 import type { VoucherSeriesRow } from "./series.types.ts";
-import { voucherSeries } from "./voucher-series.table.ts";
+import { voucherSeries } from "../db/schema";
 
 /**
  * Los tipos que la app emite hoy, derivados del contrato compartido y no de una segunda lista:

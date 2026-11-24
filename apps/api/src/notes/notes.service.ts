@@ -35,7 +35,7 @@ import { saleAmounts } from "@gestion/shared/lib/ventas/montos.ts";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { DATABASE, type Database, type Transaction } from "../db/db.provider";
 import { withOwner } from "../db/with-owner";
-import { comprobanteAjuste } from "./note.table.ts";
+import { comprobante as comprobanteAjuste } from "../db/schema";
 import { toNoteHttpException } from "./notes.errors.ts";
 import type { NoteCreateBody } from "./notes.query.ts";
 

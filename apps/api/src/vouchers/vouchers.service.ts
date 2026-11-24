@@ -50,9 +50,8 @@ import { BASE_VOUCHER_TYPES } from "@gestion/shared/lib/data/sale-options.ts";
 import { saleAmounts } from "@gestion/shared/lib/ventas/montos.ts";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { DATABASE, type Database, type Transaction } from "../db/db.provider";
-import { entidad, voucherBalance } from "../db/schema";
+import { comprobante, entidad, voucherBalance } from "../db/schema";
 import { withOwner } from "../db/with-owner";
-import { comprobante } from "./comprobante.table.ts";
 import {
 	toVoucherHttpException,
 	voucherBalanceFailure,

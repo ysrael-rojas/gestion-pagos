@@ -5,7 +5,7 @@
   "description": "Backend NestJS del monorepo: Better Auth montado como handler, Drizzle sobre PostgreSQL y el contrato Zod de @gestion/shared.",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "dev": "node scripts/build.mjs --watch",
+    "dev": "node scripts/dev.mjs",
     "start": "node dist/main.js",
     "test": "node --test --experimental-transform-types --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"

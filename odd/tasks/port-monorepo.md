@@ -572,6 +572,19 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   en el `README.md`. Arreglarlo bien pide `@nestjs/cli` (`nest start --watch`) o un runner equivalente:
   es una dependencia nueva, no un detalle. `turbo.json` ya declara `env` para `dev` (hecho en esta
   sesión) para que el modo strict no borre `DATABASE_URL`.
+- L80 (**saldada L78**, sin dependencias nuevas): `apps/api/scripts/dev.mjs` corre esbuild en watch y
+  el servidor, y lo reinicia en cada recompilación buena. Se descartó `@nestjs/cli`: una dependencia
+  nueva para lo que hacen treinta líneas, y `nest start --watch` compilaría distinto que el build de
+  release (esbuild, sin `emitDecoratorMetadata`). Las opciones de build se movieron a
+  `scripts/esbuild-options.mjs` para que `build` y `dev` no diverjan. Reglas del supervisor: build con
+  errores no reinicia (el servidor sigue con la última versión buena), servidor que muere solo no se
+  reintenta (se informa y se espera el próximo cambio), y `Ctrl+C` apaga los dos. Límite honesto: en
+  Windows, matar el watcher sin consola (`taskkill`, `kill -9`) usa `TerminateProcess` y no corre
+  handlers, así que el servidor queda vivo — le pasa igual a `nodemon` y a `nest start --watch`; el
+  comentario del script y el README dicen cómo encontrar y matar ese caso. Verificado en ejecución
+  real (puerto 3101): arranca y responde `/health`, reinicia al guardar, **no** reinicia con un error
+  de sintaxis mientras el servidor sigue sirviendo, y se recupera al arreglar el archivo. Esa última
+  mitad es la que importa: un error de tipos no sirve como prueba, porque esbuild no typechequea.
 
 ## Estado para retomar (handoff)
 
@@ -587,7 +600,7 @@ los más entrelazados porque arrastran comprobantes y saldos.
 **Deudas abiertas, con su referencia.**
 - L77 — el API acepta `POST /api/auth/sign-up/email` de cualquiera: "solo el dueño crea cuentas" es
   restricción de UI. Cerrarlo pide fixtures SQL en los tests en vez del endpoint real.
-- L78 — `apps/api` `dev` compila en watch pero no arranca el servidor; `pnpm dev` no levanta el API.
+- ~~L78~~ — cerrada en L80: `pnpm dev` levanta los dos procesos y el API se reinicia al guardar.
 - L67 — `ensureDefaultSettings()` (cajas-bancos) sin portar; sin cubrir: pestañas de filtro, diálogo de
   asignación, impresión del recibo, concurrencia.
 - L46c — `authenticated` conserva DML sobre `payment_balance` y `voucher_balance` (inocuo, sobra).

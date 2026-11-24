@@ -19,12 +19,12 @@ import {
 
 const serieBase = { code: "F001", isDefault: true };
 
-test("la pantalla solo ofrece los tipos que la app emite (S4)", () => {
+test("la pantalla solo ofrece los tipos que la app emite (S4 del slice 2, ampliado en el slice 3)", () => {
   assert.deepEqual(
     ISSUED_SERIES_VOUCHER_TYPES.map((option) => option.value),
-    ["FACTURA", "BOLETA", "NOTA_VENTA"]
+    ["FACTURA", "BOLETA", "NOTA_VENTA", "NOTA_CREDITO", "NOTA_DEBITO"]
   );
-  // El catalogo completo sigue existiendo: las notas y la retencion llegan con su flujo.
+  // El catalogo completo sigue existiendo: la retencion llega con su flujo.
   assert.equal(SERIES_VOUCHER_TYPES.length, 6);
 });
 
@@ -38,20 +38,17 @@ test("todo tipo ofrecido lo acepta el formulario, y ningun otro", () => {
     assert.equal(parsed.success, true, `${option.value} deberia ser valido`);
   }
 
-  // Los tres que no se emiten se rechazan con el mensaje del contrato (S7).
-  for (const voucherType of [
-    "NOTA_CREDITO",
-    "NOTA_DEBITO",
-    "COMPROBANTE_RETENCION",
-  ]) {
-    const parsed = serieFormSchema.safeParse({ ...serieBase, voucherType });
+  // El unico tipo que no se emite todavia se rechaza con el mensaje del contrato (S7).
+  const parsed = serieFormSchema.safeParse({
+    ...serieBase,
+    voucherType: "COMPROBANTE_RETENCION",
+  });
 
-    assert.equal(parsed.success, false, `${voucherType} no deberia ofrecerse`);
-    assert.deepEqual(
-      parsed.error?.issues.map((issue) => issue.message),
-      ["Selecciona el tipo de comprobante"]
-    );
-  }
+  assert.equal(parsed.success, false, "COMPROBANTE_RETENCION no deberia ofrecerse");
+  assert.deepEqual(
+    parsed.error?.issues.map((issue) => issue.message),
+    ["Selecciona el tipo de comprobante"]
+  );
 });
 
 test("el codigo de serie usa los mensajes del origen (S7)", () => {

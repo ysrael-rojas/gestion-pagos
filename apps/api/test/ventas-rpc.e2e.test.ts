@@ -1291,28 +1291,26 @@ test("recrear una serie dada de baja arranca en el maximo ya emitido con ese cod
 	]);
 });
 
-test("crear_serie solo acepta los tres tipos que la app emite (S13.2)", async () => {
+test("crear_serie acepta los tipos de nota y solo la retencion queda afuera (S13.2, S3 del port de notas)", async () => {
 	const dueno = await freshOwner("tipo-serie");
 
-	// Los otros tres del enum existen en la base, pero todavia no hay flujo que los emita: una
-	// serie de nota de credito por RPC directa responde el mensaje de S6 y no escribe nada. La
-	// restriccion no puede vivir solo en la pantalla (S4).
-	for (const tipo of ["NOTA_CREDITO", "NOTA_DEBITO", "COMPROBANTE_RETENCION"]) {
-		const rechazo = await rejectionOf(dueno.id, (client) =>
-			crearSerie(client, { voucherType: tipo, code: "F001", isDefault: true }),
-		);
+	// El port de notas (S3 de `port-vertical-notas.md`) abrio los dos tipos de nota: ahora hay un
+	// flujo que los emite y sin serie propia no tienen correlativo. La retencion sigue afuera hasta
+	// que exista el suyo, con el mismo mensaje y sin escribir nada.
+	const rechazo = await rejectionOf(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "COMPROBANTE_RETENCION", code: "F001", isDefault: true }),
+	);
 
-		assert.equal(rechazo.message, DATOS_SERIE_INVALIDOS, `el tipo ${tipo} no se emite`);
-		assert.equal(rechazo.code, "23514", "la familia es la de los datos invalidos, no el generico");
-	}
+	assert.equal(rechazo.message, DATOS_SERIE_INVALIDOS, "el tipo COMPROBANTE_RETENCION no se emite");
+	assert.equal(rechazo.code, "23514", "la familia es la de los datos invalidos, no el generico");
 
 	assert.equal(
 		(await seriesOf(dueno.id)).length,
 		0,
-		"ningun tipo que no se emite dejo fila, y el default anterior no se limpio",
+		"el tipo que no se emite no dejo fila, y el default anterior no se limpio",
 	);
 
-	// Los tres que si se emiten siguen entrando, y con sus reglas de siempre.
+	// Los cinco que si se emiten siguen entrando, y con sus reglas de siempre.
 	await asOwner(dueno.id, (client) =>
 		crearSerie(client, { voucherType: "FACTURA", code: "F001", isDefault: true }),
 	);
@@ -1322,10 +1320,16 @@ test("crear_serie solo acepta los tres tipos que la app emite (S13.2)", async ()
 	await asOwner(dueno.id, (client) =>
 		crearSerie(client, { voucherType: "NOTA_VENTA", code: "NV01", isDefault: true }),
 	);
+	await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "NOTA_CREDITO", code: "FC01", isDefault: true }),
+	);
+	await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "NOTA_DEBITO", code: "FD01", isDefault: true }),
+	);
 
 	assert.deepEqual(
 		(await seriesOf(dueno.id)).map((row) => row.voucher_type),
-		["BOLETA", "FACTURA", "NOTA_VENTA"],
+		["BOLETA", "FACTURA", "NOTA_CREDITO", "NOTA_DEBITO", "NOTA_VENTA"],
 	);
 });
 

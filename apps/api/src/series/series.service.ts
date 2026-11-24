@@ -1,7 +1,8 @@
 // Servicio del vertical de series de comprobante (T3 del port de series; S4, S5 y S6).
 //
 // Que hace: listar las series vivas del dueno de la sesion y crear, editar y dar de baja las suyas.
-// Nada mas: el correlativo lo mueve `public.crear_venta` al emitir (S2), no este modulo.
+// Nada mas: el correlativo lo mueven `public.crear_venta` y `public.crear_nota` al emitir (S2 del
+// port de series, S3 del port de notas), no este modulo.
 //
 // Tres decisiones que no son de estilo:
 //
@@ -18,11 +19,14 @@
 //    eco del body: `lastNumber` no viaja en el body y la tabla lo muestra. La conversion a number
 //    ocurre aca, en el borde JSON, y no en la pantalla.
 //
-// 3. EL UNIVERSO DEL MODULO SON LOS TRES TIPOS QUE SE EMITEN (S4). El listado filtra por
+// 3. EL UNIVERSO DEL MODULO SON LOS TIPOS QUE SE EMITEN. El listado filtra por
 //    `ISSUED_SERIES_VOUCHER_TYPES` y las lecturas por id tambien, porque el contrato de fila solo
-//    modela esos tres y `crear_serie` ya no deja crear otros (S13.2). Una serie de `NOTA_CREDITO`
-//    sembrada por SQL directo queda fuera del contrato, igual que una serie dada de baja: no se
-//    lista y un id suyo responde `La serie no existe.`.
+//    modela esos cinco y `crear_serie` ya no deja crear otros (S13.2 del port de series). Desde S3 del
+//    port de notas son CINCO: los tres comprobantes base de venta mas `NOTA_CREDITO` y `NOTA_DEBITO`,
+//    que el slice 3 emite con su propia serie y correlativo. `COMPROBANTE_RETENCION` sigue afuera
+//    hasta que exista su flujo, asi que una serie suya sembrada por SQL directo queda fuera del
+//    contrato, igual que una serie dada de baja: no se lista y un id suyo responde
+//    `La serie no existe.`.
 //
 // La traduccion de errores la hace `series.errors.ts`: aca solo se dejan pasar los mensajes de S6
 // sin reescribirlos.
@@ -40,9 +44,9 @@ import type { VoucherSeriesRow } from "./series.types.ts";
 import { voucherSeries } from "./voucher-series.table.ts";
 
 /**
- * Los tres tipos que la app emite (S4), derivados del contrato compartido y no de una segunda
- * lista: `ISSUED_SERIES_VOUCHER_TYPES` es el subconjunto de `SERIES_VOUCHER_TYPES` que tambien es
- * comprobante base de venta, y es el mismo enum que valida `serieFormSchema`.
+ * Los tipos que la app emite hoy, derivados del contrato compartido y no de una segunda lista:
+ * `ISSUED_SERIES_VOUCHER_TYPES` es `SERIES_VOUCHER_TYPES` sin la retencion (los tres comprobantes base
+ * de venta mas las dos notas del slice 3), y es el mismo enum que valida `serieFormSchema`.
  */
 const ISSUED_VOUCHER_TYPES: VoucherType[] = ISSUED_SERIES_VOUCHER_TYPES.map((option) => option.value);
 
@@ -73,7 +77,7 @@ function visibleTo(ownerId: string) {
 	);
 }
 
-/** `VoucherSeriesRow['voucherType']` es el enum de los tres tipos del contrato (S10). */
+/** `VoucherSeriesRow['voucherType']` es el enum de los tipos emitibles del contrato (S10). */
 function isIssuedVoucherType(value: VoucherType): value is VoucherSeriesRow["voucherType"] {
 	return ISSUED_VOUCHER_TYPES.some((issued) => issued === value);
 }
@@ -81,7 +85,7 @@ function isIssuedVoucherType(value: VoucherType): value is VoucherSeriesRow["vou
 /**
  * Fila -> contrato de salida.
  *
- * La comprobacion del tipo no es defensa contra el usuario: la query ya filtro los tres tipos. Es
+ * La comprobacion del tipo no es defensa contra el usuario: la query ya filtro esos tipos. Es
  * el borde donde el contrato (`voucherSeriesSchema`) y la tabla (seis tipos) se encuentran, y
  * preferimos un 500 honesto a devolver un tipo que el tipo de retorno no declara.
  */

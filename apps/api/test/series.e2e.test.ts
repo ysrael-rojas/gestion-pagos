@@ -541,15 +541,23 @@ test("POST y PATCH /series rechazan el body con los mensajes del contrato compar
 	assert.equal(noType.body?.message, PAYLOAD_INVALIDO);
 	assert.equal(noType.body?.issues?.[0]?.message, TIPO_REQUERIDO);
 
-	// Los tipos que la app todavia no emite no entran por el contrato (S4), aunque existan en el
-	// enum de la base: la RPC tambien los rechaza (S13.2).
-	const creditNote = await call("POST", "/series", {
+	// La retencion sigue afuera del contrato (S4), porque todavia no tiene flujo que la emita: el
+	// schema compartido la rechaza con el mensaje del tipo. Las dos notas si entran desde el slice 3
+	// (`odd/tasks/port-vertical-notas.md`, S3), y el alta lo comprueba mas abajo.
+	const retention = await call("POST", "/series", {
 		cookie: owner.cookie,
-		body: serieBody({ voucherType: "NOTA_CREDITO" }),
+		body: serieBody({ voucherType: "COMPROBANTE_RETENCION" }),
 	});
 
-	assert.equal(creditNote.status, 400, JSON.stringify(creditNote.body));
-	assert.equal(creditNote.body?.issues?.[0]?.message, TIPO_REQUERIDO);
+	assert.equal(retention.status, 400, JSON.stringify(retention.body));
+	assert.equal(retention.body?.issues?.[0]?.message, TIPO_REQUERIDO);
+
+	// Una serie del tipo de una nota: el contrato la acepta y `crear_serie` tambien (S3), asi que
+	// el alta responde 201 y la fila se puede leer.
+	const creditNote = await createSerie(serieBody({ voucherType: "NOTA_CREDITO", code: "FC01" }));
+
+	assert.equal(creditNote.voucherType, "NOTA_CREDITO");
+	assert.equal(creditNote.code, "FC01");
 
 	const emptyCode = await call("POST", "/series", {
 		cookie: owner.cookie,

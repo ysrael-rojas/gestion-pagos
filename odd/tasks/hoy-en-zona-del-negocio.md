@@ -72,3 +72,20 @@ comprobantes `COMPRA`, asi que tampoco es contaminacion de fixture. Si hubiera f
 **L5** Causa: discrepancia de zona horaria entre el "hoy" del negocio (Lima, en seeds y fixtures) y el
 del proceso (UTC en el runner). La clase de bug ya habia aparecido una vez del lado de los fixtures
 (commit `83ee045`); esta es la mitad que faltaba, del lado de la app.
+
+**L6** Quedaban dos `default()` de `openingBalanceDate` en
+`packages/shared/src/lib/schemas/cash-account.ts:59,114` con `new Date().toISOString().slice(0, 10)`,
+o sea UTC: de 19:00 a 24:00 en Lima la cuenta nacia con la fecha de MAÑANA, mientras la fila, los
+seeds y el resto del API usaban la fecha del negocio. Se cierran con `getTodayLocalDate()` y un test
+unitario en `apps/web/lib/cajas-bancos/cuenta-fecha-apertura.test.ts` que fija el reloj con
+`mock.timers` en `2026-11-24T03:30:00Z` (22:30 del 23 en Lima) y lleva como control el valor que daba
+la lectura vieja, asi que volver a `toISOString()` lo pone en rojo.
+
+Para que el runner de Node pueda cargar ese schema hizo falta que el import interno resuelva en ESM:
+`packages/shared/tsconfig.json` habilita `allowImportingTsExtensions` y el import pasa a `../utils.ts`
+— el mismo criterio que `apps/web` y `apps/api` ya tenian. Los otros tres schemas de la carpeta siguen
+con `"../utils"` porque nadie los carga fuera de un bundler.
+
+Inventario de S4, cerrado: ningun otro lugar deriva el "hoy" de negocio del reloj del proceso.
+`apps/web/lib/cajas-bancos/periodo.ts:31` usa `toISOString()` sobre aritmetica de calendario en UTC
+con la fecha entrando por parametro (`parseIsoDate` / `Date.UTC`), no sobre el reloj.

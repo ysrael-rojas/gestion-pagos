@@ -15,6 +15,7 @@ import {
 	INVALID_VOUCHER_DATA,
 	VOUCHER_BALANCE_FAILURE,
 	VOUCHER_NOT_FOUND,
+	VOUCHER_TYPE_IMMUTABLE,
 	VOUCHER_WITH_PAYMENTS,
 	toVoucherHttpException,
 	voucherBalanceFailure,
@@ -76,6 +77,18 @@ test("los mensajes de S6 se mapean a su status sin reescribir el texto", () => {
 		);
 		assert.equal(bodyOf(exception).message, testCase.message);
 	}
+});
+
+test("el tipo de un comprobante emitido no se puede cambiar se mapea a 409 (S13.3)", () => {
+	// `public.editar_venta` levanta este texto como excepcion de dominio cuando el body pide un
+	// `voucherType` distinto al de la fila emitida. Es un rechazo por ESTADO, no por datos
+	// invalidos: la peticion esta bien formada y el usuario la resuelve con una NC/ND (S6 del port
+	// de series), asi que viaja como 409 igual que el comprobante con pagos.
+	const exception = toVoucherHttpException(pgError("P0001", VOUCHER_TYPE_IMMUTABLE));
+
+	assert.equal(exception.getStatus(), 409);
+	assert.equal(bodyOf(exception).message, VOUCHER_TYPE_IMMUTABLE);
+	assert.equal(VOUCHER_TYPE_IMMUTABLE, "El tipo de un comprobante emitido no se puede cambiar.");
 });
 
 test("un P0001 sin clasificar se muestra con su texto y status 400", () => {

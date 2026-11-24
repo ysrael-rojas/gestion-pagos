@@ -50,6 +50,8 @@ const COMPROBANTE_CON_PAGOS =
 	"No se puede modificar un comprobante con pagos registrados: anula los pagos antes de cambiar importe, numero, cliente o fecha";
 /** Texto de la RPC `editar_venta`, que T3 mapea a 404 (ver L10 del doc de la feature). */
 const COMPROBANTE_INEXISTENTE = "El comprobante no existe.";
+/** Texto de S13.3, verbatim: el tipo de un comprobante emitido es inmutable, como su numero. */
+const TIPO_INMUTABLE = "El tipo de un comprobante emitido no se puede cambiar.";
 
 /** Mensaje del pipe de Zod cuando el body no cumple `voucherFormSchema` (S11). */
 const PAYLOAD_INVALIDO = "El payload no cumple el contrato compartido.";
@@ -407,11 +409,14 @@ test("GET /vouchers/:id devuelve el comprobante con su saldo", async () => {
 test("PATCH /vouchers/:id edita la venta, recalcula el vencimiento y NO cambia el numero", async () => {
 	const created = await createVoucher(voucherBody({ total: 236 }));
 
-	// Edicion completa (el contrato es el mismo del formulario) a CREDITO.
+	// Edicion completa (el contrato es el mismo del formulario) a CREDITO. El TIPO viaja con el
+	// que la fila ya tiene: desde S13.3 el tipo de un comprobante emitido es inmutable (el numero
+	// lo asigno la serie de ese tipo), asi que cambiarlo responde 409 con su propio mensaje. El
+	// caso del rechazo lo pina la prueba de abajo.
 	const result = await call("PATCH", `/vouchers/${created.id}`, {
 		cookie: first.cookie,
 		body: voucherBody({
-			voucherType: "BOLETA",
+			voucherType: "FACTURA",
 			issueDate: "2026-03-10",
 			total: 590,
 			paymentType: "CREDITO",
@@ -421,7 +426,7 @@ test("PATCH /vouchers/:id edita la venta, recalcula el vencimiento y NO cambia e
 
 	assert.equal(result.status, 200, JSON.stringify(result.body));
 	assert.equal(result.body.id, created.id);
-	assert.equal(result.body.voucherType, "BOLETA");
+	assert.equal(result.body.voucherType, "FACTURA", "el tipo sigue siendo el del alta (S13.3)");
 	assert.equal(result.body.issueDate, "2026-03-10");
 	assert.equal(result.body.subtotal, 500);
 	assert.equal(result.body.igv, 90);
@@ -443,6 +448,31 @@ test("PATCH /vouchers/:id edita la venta, recalcula el vencimiento y NO cambia e
 	);
 
 	assert.equal(series.rows[0]?.last_number, 6, "la edicion no avanza la serie");
+});
+
+test("PATCH /vouchers/:id responde 409 cuando el body cambia el tipo de un comprobante emitido (S13.3)", async () => {
+	const created = await createVoucher(voucherBody({ total: 100 }));
+
+	assert.equal(created.voucherType, "FACTURA");
+
+	// El numero lo asigno la serie de FACTURA: si la fila pasara a BOLETA, un correlativo de
+	// factura quedaria publicado bajo otro tipo. Es un rechazo por ESTADO (409), no un 400: la
+	// peticion esta bien formada y la correccion va por NC/ND.
+	const result = await call("PATCH", `/vouchers/${created.id}`, {
+		cookie: first.cookie,
+		body: voucherBody({ voucherType: "BOLETA", total: 900 }),
+	});
+
+	assert.equal(result.status, 409, JSON.stringify(result.body));
+	assert.equal(result.body?.message, TIPO_INMUTABLE);
+
+	// Nada de la fila cambio: ni el tipo, ni el numero, ni el importe.
+	const unchanged = await call("GET", `/vouchers/${created.id}`, { cookie: first.cookie });
+
+	assert.equal(unchanged.status, 200);
+	assert.equal(unchanged.body.voucherType, "FACTURA");
+	assert.equal(unchanged.body.voucherNumber, created.voucherNumber);
+	assert.equal(unchanged.body.total, 100);
 });
 
 test("PATCH /vouchers/:id rechaza un comprobante con pagos con el mensaje del trigger", async () => {

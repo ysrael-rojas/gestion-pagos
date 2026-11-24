@@ -60,6 +60,15 @@ export const VOUCHER_WITH_PAYMENTS =
  */
 export const VOUCHER_NOT_FOUND = "El comprobante no existe.";
 
+/**
+ * Textual de `public.editar_venta` cuando cambia el tipo de un comprobante ya emitido (S13.3).
+ *
+ * El tipo y el numero son lo que SUNAT identifica: el numero lo asigno la serie de un tipo, y
+ * publicarlo bajo otro dejaria un correlativo emitido a nombre de un comprobante que no es. El
+ * comprobante se corrige con NC/ND, no cambiando de tipo.
+ */
+export const VOUCHER_TYPE_IMMUTABLE = "El tipo de un comprobante emitido no se puede cambiar.";
+
 /** `42501` de un grant o de una politica RLS: su texto nombra tablas y sentencias. */
 const SESSION_PERMISSION_MESSAGE =
 	"No tienes permisos para esta operación. Cierra sesión y vuelve a entrar.";
@@ -89,6 +98,7 @@ const DOMAIN_RULES: ReadonlyArray<{ message: string; status: VoucherStatus }> = 
 	{ message: CLIENT_NOT_FOUND, status: 404 },
 	{ message: DUPLICATE_SALE, status: 409 },
 	{ message: VOUCHER_WITH_PAYMENTS, status: 409 },
+	{ message: VOUCHER_TYPE_IMMUTABLE, status: 409 },
 	{ message: INVALID_VOUCHER_DATA, status: 400 },
 ];
 

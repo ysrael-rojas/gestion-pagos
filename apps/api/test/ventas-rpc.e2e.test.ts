@@ -43,6 +43,11 @@ const SERIE_DUPLICADA = "Ya existe una serie con ese código para ese tipo.";
 const DATOS_SERIE_INVALIDOS = "Los datos de la serie no son válidos.";
 const SERIE_INEXISTENTE = "La serie no existe.";
 const ERROR_GENERICO = "No se pudo completar la operación con la base de datos. Intenta nuevamente.";
+/**
+ * S13.3: el tipo de un comprobante emitido es inmutable, como su numero. La RPC lo levanta como
+ * excepcion de dominio (P0001) y el mapeador del API la convierte en 409.
+ */
+const TIPO_INMUTABLE = "El tipo de un comprobante emitido no se puede cambiar.";
 
 /** El mensaje del trigger ya portado (`private.protect_paid_comprobante`), textual de S6. */
 const COMPROBANTE_CON_PAGOS =
@@ -1160,6 +1165,231 @@ test("editar_serie y eliminar_serie responden `La serie no existe.` para un id d
 	assert.equal(ajenas[0]?.code, "F001", "la serie ajena quedo intacta");
 	assert.equal(ajenas[0]?.is_default, true);
 	assert.equal(ajenas[0]?.deleted_at, null);
+});
+
+// ---------------------------------------------------------------------------
+// S13 (T3b): los tres huecos que dejo abierto el correlativo asignado por la base.
+// ---------------------------------------------------------------------------
+
+test("recrear una serie dada de baja arranca en el maximo ya emitido con ese codigo, no en 0 (S13.1)", async () => {
+	const dueno = await freshOwner("recrear-serie");
+	const ajeno = await freshOwner("recrear-ajeno");
+
+	// Numeracion de OTRO dueno con el mismo codigo: no puede bleeding hacia este dueno (el
+	// `(dueno, tipo, codigo)` es la clave del calculo, no el codigo suelto).
+	await asOwner(ajeno.id, (client) =>
+		crearSerie(client, { voucherType: "FACTURA", code: "F001", isDefault: true }),
+	);
+
+	for (let index = 0; index < 3; index += 1) {
+		await asOwner(ajeno.id, (client) =>
+			crearVenta(client, {
+				entityId: ajeno.entityId,
+				subtotal: "10.00",
+				igv: "1.80",
+				total: "11.80",
+			}),
+		);
+	}
+
+	const serieId = await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "FACTURA", code: "F001", isDefault: true }),
+	);
+
+	const emitidas: string[] = [];
+
+	for (let index = 0; index < 2; index += 1) {
+		emitidas.push(
+			await asOwner(dueno.id, (client) =>
+				crearVenta(client, {
+					entityId: dueno.entityId,
+					subtotal: "10.00",
+					igv: "1.80",
+					total: "11.80",
+				}),
+			),
+		);
+	}
+
+	assert.deepEqual(
+		await Promise.all(emitidas.map(async (id) => (await storedVenta(id)).voucher_number)),
+		["F001-000001", "F001-000002"],
+	);
+
+	// Una COMPRA con un numero alto en el MISMO prefijo: no es una venta emitida con esa serie, y
+	// el indice unico que el alta de venta puede violar es por `voucher_kind`, asi que tampoco
+	// compite. Si el calculo no filtrara el tipo de comprobante, la serie recreada arrancaria en 42.
+	await pool.query(
+		`insert into public.comprobante
+		   (owner_id, entity_id, voucher_kind, voucher_type, voucher_number,
+		    issue_date, subtotal, igv, total, payment_type)
+		 values ($1, $2, 'COMPRA', 'FACTURA', 'F001-000042', '2026-11-24', 10, 1.8, 11.8, 'CONTADO')`,
+		[dueno.id, dueno.entityId],
+	);
+
+	// La serie se da de baja: es el caso del origen que hacia chocar la primera venta siguiente.
+	await asOwner(dueno.id, (client) => eliminarSerie(client, serieId));
+
+	// Otro codigo del mismo dueno y tipo emite con su propia numeracion.
+	await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "FACTURA", code: "F002", isDefault: true }),
+	);
+
+	const otra = await asOwner(dueno.id, (client) =>
+		crearVenta(client, {
+			entityId: dueno.entityId,
+			subtotal: "10.00",
+			igv: "1.80",
+			total: "11.80",
+		}),
+	);
+
+	assert.equal((await storedVenta(otra)).voucher_number, "F002-000001");
+
+	// El codigo F001 vuelve, no por defecto: tiene que arrancar en el maximo ya emitido con
+	// `(este dueno, FACTURA, F001)`, que es 2 y no 0 (ni 1 de F002, ni 3 del otro dueno, ni 42 de
+	// la compra).
+	await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "FACTURA", code: "F001", isDefault: false }),
+	);
+
+	assert.equal(
+		await lastNumberOf(dueno.id, "F001"),
+		2,
+		"la serie recreada arranca en el maximo ya emitido, no en 0",
+	);
+	assert.equal(await lastNumberOf(dueno.id, "F002"), 1, "el otro codigo no se movio");
+
+	// Y la primera venta de la serie recreada continua la numeracion: sin esto, seria
+	// `F001-000001` y chocaria contra `comprobante_owner_kind_number_key` con el mensaje
+	// `Ya registraste una venta con ese número de comprobante.`
+	const f001 = await seriesOf(dueno.id).then((rows) =>
+		rows.find((row) => row.code === "F001" && row.deleted_at === null),
+	);
+
+	assert.ok(f001, "la serie F001 recreada deberia existir");
+
+	await asOwner(dueno.id, (client) => editarSerie(client, f001.id, { code: "F001", isDefault: true }));
+
+	const siguiente = await asOwner(dueno.id, (client) =>
+		crearVenta(client, {
+			entityId: dueno.entityId,
+			subtotal: "10.00",
+			igv: "1.80",
+			total: "11.80",
+		}),
+	);
+
+	assert.equal((await storedVenta(siguiente)).voucher_number, "F001-000003");
+	assert.equal(await lastNumberOf(dueno.id, "F001"), 3);
+
+	// Los numeros del otro dueno y los de la compra quedaron como estaban.
+	assert.deepEqual(await ventasOf(ajeno.id, "F001"), [
+		"F001-000001",
+		"F001-000002",
+		"F001-000003",
+	]);
+});
+
+test("crear_serie solo acepta los tres tipos que la app emite (S13.2)", async () => {
+	const dueno = await freshOwner("tipo-serie");
+
+	// Los otros tres del enum existen en la base, pero todavia no hay flujo que los emita: una
+	// serie de nota de credito por RPC directa responde el mensaje de S6 y no escribe nada. La
+	// restriccion no puede vivir solo en la pantalla (S4).
+	for (const tipo of ["NOTA_CREDITO", "NOTA_DEBITO", "COMPROBANTE_RETENCION"]) {
+		const rechazo = await rejectionOf(dueno.id, (client) =>
+			crearSerie(client, { voucherType: tipo, code: "F001", isDefault: true }),
+		);
+
+		assert.equal(rechazo.message, DATOS_SERIE_INVALIDOS, `el tipo ${tipo} no se emite`);
+		assert.equal(rechazo.code, "23514", "la familia es la de los datos invalidos, no el generico");
+	}
+
+	assert.equal(
+		(await seriesOf(dueno.id)).length,
+		0,
+		"ningun tipo que no se emite dejo fila, y el default anterior no se limpio",
+	);
+
+	// Los tres que si se emiten siguen entrando, y con sus reglas de siempre.
+	await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "FACTURA", code: "F001", isDefault: true }),
+	);
+	await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "BOLETA", code: "B001", isDefault: true }),
+	);
+	await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "NOTA_VENTA", code: "NV01", isDefault: true }),
+	);
+
+	assert.deepEqual(
+		(await seriesOf(dueno.id)).map((row) => row.voucher_type),
+		["BOLETA", "FACTURA", "NOTA_VENTA"],
+	);
+});
+
+test("editar_venta rechaza cambiar el tipo de un comprobante emitido y no escribe nada (S13.3)", async () => {
+	const dueno = await freshOwner("tipo-inmutable");
+
+	await asOwner(dueno.id, (client) =>
+		crearSerie(client, { voucherType: "FACTURA", code: "F001", isDefault: true }),
+	);
+
+	const id = await asOwner(dueno.id, (client) =>
+		crearVenta(client, {
+			entityId: dueno.entityId,
+			subtotal: "100.00",
+			igv: "18.00",
+			total: "118.00",
+		}),
+	);
+
+	assert.equal((await storedVenta(id)).voucher_number, "F001-000001");
+
+	const antes = await storedVenta(id);
+
+	// El numero lo asigno la serie de FACTURA: publicarlo bajo BOLETA dejaria un correlativo de
+	// factura emitido como boleta. El comprobante se corrige con NC/ND, no cambiando de tipo.
+	const rechazo = await rejectionOf(dueno.id, (client) =>
+		editarVenta(client, id, {
+			entityId: dueno.entityId,
+			voucherType: "BOLETA",
+			issueDate: "2027-01-05",
+			subtotal: "200.00",
+			igv: "36.00",
+			total: "236.00",
+		}),
+	);
+
+	assert.equal(rechazo.message, TIPO_INMUTABLE);
+	assert.equal(rechazo.code, "P0001", "es una excepcion de dominio: el API la mapea a 409");
+
+	// Nada mas de la fila cambio: ni el tipo, ni el numero, ni el importe, ni la fecha.
+	assert.deepEqual(await storedVenta(id), antes);
+	assert.equal(await lastNumberOf(dueno.id, "F001"), 1, "la serie no avanzo con el rechazo");
+
+	// Control positivo: la misma edicion con el MISMO tipo si escribe (el rechazo de arriba es por
+	// el tipo, no porque la edicion este rota).
+	const edited = await asOwner(dueno.id, (client) =>
+		editarVenta(client, id, {
+			entityId: dueno.entityId,
+			voucherType: "FACTURA",
+			issueDate: "2027-01-05",
+			subtotal: "200.00",
+			igv: "36.00",
+			total: "236.00",
+		}),
+	);
+
+	assert.equal(edited, id);
+
+	const despues = await storedVenta(id);
+
+	assert.equal(despues.voucher_type, "FACTURA");
+	assert.equal(despues.voucher_number, "F001-000001", "el numero sigue siendo el del alta");
+	assert.equal(despues.issue_date, "2027-01-05");
+	assert.equal(despues.total, "236.00");
 });
 
 // ---------------------------------------------------------------------------

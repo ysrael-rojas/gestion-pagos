@@ -23,12 +23,28 @@ export function formatDate(value: string): string {
   return `${day}/${month}/${year}`;
 }
 
+// "Hoy" es la fecha del NEGOCIO (`America/Lima`), no la del proceso.
+//
+// Sacarla del reloj del proceso hacia que, con el host en UTC (el runner de CI), el "hoy" del API
+// fuera un dia adelante del "hoy" de los seeds y fixtures —que escriben
+// `(now() at time zone 'America/Lima')::date`— entre las 00:00 y las 05:00 UTC. En esa ventana todo
+// comprobante `CONTADO` que vencia hoy aparecia como vencido, con su monto.
+//
+// Se usa `Intl` y no un offset fijo de -5: el offset escrito a mano se rompe el dia que el huso
+// cambie, y la semantica tiene que venir de la misma zona que usan los seeds.
+const businessDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Lima",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 export function getTodayLocalDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  const parts = businessDateFormatter.formatToParts(new Date());
+  const valueOf = (type: "year" | "month" | "day"): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${valueOf("year")}-${valueOf("month")}-${valueOf("day")}`;
 }
 
 /** Redondea a 2 decimales para no arrastrar ruido de punto flotante. */

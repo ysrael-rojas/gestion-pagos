@@ -88,12 +88,17 @@ const LINKS: NavLink[] = [
   { label: "Extractos", href: "/cajas-bancos/extractos", icon: FileText },
   { label: "Conciliación", href: "/cajas-bancos/conciliacion", icon: Scale },
   { label: "Configuración de caja", href: "/cajas-bancos/configuracion", icon: Settings },
+  // Vertical de ventas (T5 del port): era la primera entrada de `PENDING_GROUPS` y se enlaza a
+  // `/ventas`, que ya es una ruta real (listado, alta, detalle y edicion). Se agrega al FINAL, sin
+  // renombrar ni reordenar las anteriores, y con las tres pantallas del vertical colgando del
+  // listado (`/ventas/nuevo`, `/ventas/[id]`, `/ventas/[id]/editar`): en el origen era un grupo con
+  // esas mismas rutas.
+  { label: "Ventas", href: "/ventas", icon: Receipt },
   { label: "Estado del API", href: "/health", icon: Activity },
 ];
 
 /** Los modulos del origen, en el mismo orden que su barra, pendientes de port (T5c). */
 const PENDING_GROUPS: PendingGroup[] = [
-  { label: "Ventas", icon: Receipt, modules: ["/ventas", "/ventas/nuevo", "/ventas/[id]"] },
   { label: "Compras", icon: ShoppingCart, modules: ["/compras", "/compras/nuevo", "/compras/[id]"] },
   { label: "Notas y retenciones", icon: FileText, modules: ["/notas/credito", "/notas/debito", "/retenciones"] },
   { label: "Configuración", icon: Settings, modules: ["/configuracion"] },

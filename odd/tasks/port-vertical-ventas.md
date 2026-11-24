@@ -120,7 +120,7 @@ al menos `voucherFormSchema` se usa en el form y en el API.
 | T1 | S2, S3, S4 | inline: helper de montos en `packages/shared` + limpieza de `creditDays` en el schema, con tests unitarios | hecho (L9) |
 | T2 | S6, S7, S8 | worker: migración con `crear_venta`/`editar_venta` + `advance_series_number`, grants y tests SQL | hecho (L10) |
 | T3 | S5, S6, S9 | worker: módulo `vouchers` en `apps/api` (controller, service, mapa de errores) + e2e | hecho (L11) |
-| T4 | S5, S9, S10 | worker: `apps/web/lib/ventas` y `components/ventas` + form y detalle compartidos | pendiente |
+| T4 | S5, S9, S10 | worker: `apps/web/lib/ventas` y `components/ventas` + form y detalle compartidos | hecho (L12) |
 | T5 | S10, S11 | worker: ruta `/ventas`, navbar, allowlist del BFF, `specs/10-ventas.spec.ts` | pendiente |
 | T6 | S11 | parent: docs (`docs/operacion/` si hace falta), log y cierre del slice | pendiente |
 
@@ -212,6 +212,30 @@ Decisiones que quedan escritas en el código y que T4/T5 tienen que respetar:
 
 Nota de entorno para correr la suite del API: hace falta `BETTER_AUTH_URL` (sin ella los dos e2e
 que mandan `Origin` reciben 403 `Invalid origin` y el rojo se lee como regresión).
+
+**L12** (evidencia, T4 cerrada): `apps/web/lib/ventas/**` (capa pura: `tabla`, `formulario`,
+`series`, `fechas`, `types`, `ventas`) con 42 casos nuevos de `node:test`, y
+`apps/web/components/ventas/**` (formulario y detalle compartidos por `voucherKind`, listado,
+columnas, toolbar, banda de montos). `pnpm --filter @gestion/web test` 158/158 y typecheck en 0.
+Los nueve textos de S5 están en el código y verificados byte a byte contra este documento.
+
+Lo que queda anotado y no es cosmético:
+1. **El output de `voucherFormSchema` no era input válido del mismo schema**: en `CONTADO` devuelve
+   `creditDays: null` y el `z.coerce.number` interno convierte `null` en 0, que falla `min(1)`. Un
+   cliente que postee el output del formulario recibe 400 `Los días de crédito deben ser al menos
+   1` en una venta de contado. T4 lo esquiva con `toVoucherRequestBody` (omite el campo), pero el
+   contrato no debería depender de eso: se corrige en el schema (ver L13).
+2. Los tres textos de S5 sobre series solo se pintan si alguien pasa `series` al formulario: no
+existe endpoint de series (la UI de `/configuracion` está fuera del slice 1), así que hoy los fija
+   un test unitario y no un e2e. Queda escrito para el slice de series.
+3. `Registrar pago` se resuelve como link a `/pagos/ingresos/nuevo?entityId=..&comprobanteId=..`
+   (esa página ya lee los dos parámetros) y solo se pinta con `status === 'PENDIENTE'`.
+4. El listado toma los filtros de la URL (`?desde=&hasta=&estado=`) y no de un prop, así que T5
+   monta las páginas sin plomería.
+
+**L13** (decisión): `voucherFormSchema` acepta `null` en `creditDays` (se trata como ausente, igual
+que `""`) para que su output sea input válido. El error de S4 de `CREDITO` sin días no cambia,
+porque el `superRefine` sigue mirando `== null` después del schema.
 
 
 

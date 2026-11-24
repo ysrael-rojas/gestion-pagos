@@ -68,11 +68,13 @@ Los datos de la serie no son válidos.
 No se pudo completar la operación con la base de datos. Intenta nuevamente.
 La serie no existe.
 No hay una serie por defecto para este tipo de comprobante. Configura una en Configuración → Series.
+El tipo de un comprobante emitido no se puede cambiar.
 ```
 
-Los dos últimos son nuevos y de este slice: el primero porque `eliminar_serie`/`editar_serie` no
-pueden distinguir "no existe" de "es de otro dueño" sin filtrar existencia (mismo criterio que
-`El comprobante no existe.` del slice 1); el segundo es el alta sin serie del S2.
+Los tres últimos son nuevos y de este slice: `La serie no existe.` porque `eliminar_serie`/`editar_serie`
+no pueden distinguir "no existe" de "es de otro dueño" sin filtrar existencia (mismo criterio que
+`El comprobante no existe.` del slice 1); el segundo es el alta sin serie del S2; y el tercero es la
+inmutabilidad del tipo (S13.3), que responde 409 como el resto de los rechazos por estado.
 
 **S7.** Mensajes de validación del contrato (verbatim del origen `lib/schemas/serie.ts:21-32`):
 
@@ -145,13 +147,28 @@ verde con la matriz de `voucher_series` sin cambios; `db:dump --check` en sincro
 `11-series` con alta, edición, default y borrado lógico. Sin huecos: dos altas seguidas producen
 `...-000001` y `...-000002`.
 
+**S13.** Tres consecuencias del correlativo asignado que salieron al implementar S2/S5 y se cierran
+en el mismo slice (L5):
+
+1. **Recrear una serie dada de baja no puede volver a 0.** Si se crea una serie con el código de una
+   que se dio de baja, el correlativo tiene que arrancar en el máximo ya emitido con ese
+   `(dueño, tipo, código)`, o la primera venta choca contra los comprobantes que ya existen
+   (`Ya registraste una venta con ese número de comprobante.`). El cálculo va en `crear_serie`.
+2. **`crear_serie` acepta solo los tipos de S4**, igual que `crear_venta`: una serie de nota de
+   crédito por RPC directa responde `Los datos de la serie no son válidos.` La restricción no puede
+   vivir solo en la pantalla.
+3. **El tipo de un comprobante emitido es inmutable**, como su número: si se pudiera cambiar de
+   BOLETA a FACTURA, el número asignado por la serie de un tipo quedaría publicado bajo otro. Las
+   reglas que SUNAT pide (anular o corregir con NC/ND) ya rigen el resto del comprobante.
+
 ## Tasks
 
 | ID | Spec | Ruta | Estado |
 | --- | --- | --- | --- |
-| T1 | S2, S3, S5, S6 | worker: migración con el correlativo asignado (`crear_venta`/`editar_venta` sin `p_voucher_number`) y las tres RPC de serie, con tests SQL | pendiente |
-| T2 | S10, S6, S7 | inline: contratos en `packages/shared` (`voucherSeriesSchema`, opciones filtradas a S4) + tests | pendiente |
+| T1 | S2, S3, S5, S6 | worker: migración con el correlativo asignado (`crear_venta`/`editar_venta` sin `p_voucher_number`) y las tres RPC de serie, con tests SQL | hecho (L5) |
+| T2 | S10, S6, S7 | inline: contratos en `packages/shared` (`voucherSeriesSchema`, opciones filtradas a S4) + tests | hecho (L6) |
 | T3 | S4, S5, S6 | worker: módulo `series` en `apps/api` (controller, service, mapa de errores) + e2e | pendiente |
+| T3b | S13 | worker: migración con las tres reglas que cierran los huecos de S2/S5, con sus tests | pendiente |
 | T4 | S8 | worker: pantalla `/configuracion/series` (tabla, modal, diálogo de borrado) + helpers puros con tests | pendiente |
 | T5 | S9, S11 | worker: ruta `/configuracion` → redirect, navbar, allowlist del BFF, preview de solo lectura en el formulario | pendiente |
 | T6 | S12 | parent: `specs/10-ventas` actualizado, `specs/11-series` nuevo, contadores de `.github/CI.md`, log y cierre | pendiente |
@@ -181,3 +198,23 @@ edita; (b) el número de un comprobante emitido es inmutable, también al editar
 defecto no se registra, no hay fallback silencioso; (d) la pantalla ofrece solo los tres tipos que se
 emiten (S4); (e) los tres textos del origen que dicen "se sugiere" se corrigen porque el sistema ya
 no sugiere, asigna (S8); (f) `/configuracion` redirige a `/configuracion/series`.
+
+**L5** (evidencia, T1 cerrada): migración `20261125090000_series_rpcs.sql` (620 líneas) con
+`crear_venta` y `editar_venta` sin `p_voucher_number`, las tres RPC de serie y el `drop` explícito de
+las firmas viejas (sin ese `drop`, `create or replace` habría dejado viva una sobrecarga con el
+criterio anterior). Contrato de escritura derivado del mismo objeto en
+`packages/shared/src/lib/schemas/voucher.ts` (`voucherWriteSchema`, con el número aceptado e
+ignorado para no romper al cliente hasta T5). Evidencia: suite del API **179/179**, web 162/162,
+`typecheck` 4/4, `db:check-rls` 47/47, `dump-schema --check` en sincronía, y una sonda de
+concurrencia con dos conexiones que muestra a la segunda esperando `Lock/transactionid` y
+terminando con `F001-000001` y `F001-000002`.
+
+Tres huecos que el trabajo destapó y que este documento cierra en S13: recrear una serie dada de
+baja arrancaría en 0 y chocaría con lo ya emitido; `crear_serie` no restringía el tipo a los de S4;
+y `editar_venta` todavía dejaba cambiar el **tipo** de un comprobante emitido, que con número
+asignado por serie deja un correlativo publicado bajo el tipo equivocado.
+
+**L6** (evidencia, T2 cerrada): `voucherSeriesSchema` (contrato de fila con `lastNumber`) y
+`ISSUED_SERIES_VOUCHER_TYPES` derivado de `VOUCHER_TYPES` en lugar de una segunda lista;
+`serieFormSchema` pasa a aceptar solo los tres tipos que se emiten. Test
+`apps/web/lib/ventas/series-contrato.test.ts` 4/4, web **162/162**, `typecheck` 4/4.

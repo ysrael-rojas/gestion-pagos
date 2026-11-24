@@ -10,7 +10,9 @@
 //      porque `z.coerce.number(null)` da 0 y falla `min(1)`. El schema ahora trata `null` como
 //      ausente (L13), asi que su output vuelve a entrar; `toVoucherRequestBody` igual omite el campo
 //      cuando es null, y eso se prueba aca.
-//   4. Los textos de S5 que dictan la pantalla: la regla "FACTURA exige cliente con RUC" (que el
+//   4. El preview del numero de comprobante (S11): el alta muestra `code-(last+1)` de la serie por
+//      defecto y el numero deja de viajar en el body; la edicion muestra el numero ya emitido.
+//   5. Los textos de S5 que dictan la pantalla: la regla "FACTURA exige cliente con RUC" (que el
 //      API NO valida a proposito), el aviso de comprobante con pagos, y "Sin dirección registrada".
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -18,6 +20,7 @@ import { describe, it } from "node:test";
 import { DEFAULT_CREDIT_DAYS } from "@gestion/shared/lib/data/sale-options.ts";
 import {
   voucherFormSchema,
+  voucherWriteSchema,
   type VoucherFormValues,
 } from "@gestion/shared/lib/schemas/voucher.ts";
 import { getTodayLocalDate } from "@gestion/shared/lib/utils.ts";
@@ -32,6 +35,7 @@ import {
   creditDaysForPaymentType,
   isPaidLocked,
   paidLockMessage,
+  previewVoucherNumber,
   toVoucherFormValues,
   toVoucherRequestBody,
   voucherCopy,
@@ -122,7 +126,7 @@ describe("creditDaysForPaymentType", () => {
 });
 
 describe("toVoucherRequestBody", () => {
-  it("manda un body que el schema compartido acepta, tambien en CONTADO", () => {
+  it("manda un body que el contrato de escritura acepta, tambien en CONTADO", () => {
     const values = formValues();
 
     // El output del schema tiene que poder volver a entrar como body (L13): si no, postear el
@@ -134,7 +138,6 @@ describe("toVoucherRequestBody", () => {
     assert.deepEqual(body, {
       issueDate: "2026-03-15",
       voucherType: "BOLETA",
-      voucherNumber: "B001-000001",
       entityId: "550e8400-e29b-41d4-a716-446655440001",
       total: 100,
       paymentType: "CONTADO",
@@ -142,9 +145,20 @@ describe("toVoucherRequestBody", () => {
     });
     assert.equal("creditDays" in body, false);
 
-    const parsed = voucherFormSchema.safeParse(body);
+    // El body no es para el schema del FORMULARIO (ese exige el preview del numero): su contrato es
+    // el de escritura, que ademas normaliza `creditDays` a `null` en CONTADO.
+    const parsed = voucherWriteSchema.safeParse(body);
     assert.equal(parsed.success, true);
     assert.equal(parsed.success && parsed.data.creditDays, null);
+  });
+
+  it("no manda el numero: lo asigna la base desde la serie por defecto (S2/S11)", () => {
+    const body = toVoucherRequestBody(formValues());
+
+    // El preview es de la pantalla; el numero real lo escribe `crear_venta`.
+    assert.equal("voucherNumber" in body, false);
+    // El contrato de ESCRITURA ya no lo exige, asi que el body sin numero es valido para el API.
+    assert.equal(voucherWriteSchema.safeParse(body).success, true);
   });
 
   it("conserva los dias de credito en CREDITO", () => {
@@ -153,7 +167,37 @@ describe("toVoucherRequestBody", () => {
     );
 
     assert.equal(body.creditDays, 15);
-    assert.equal(voucherFormSchema.safeParse(body).success, true);
+    assert.equal(voucherWriteSchema.safeParse(body).success, true);
+  });
+});
+
+describe("preview del numero de comprobante (S11)", () => {
+  it("en el alta muestra el proximo correlativo de la serie por defecto", () => {
+    assert.equal(
+      previewVoucherNumber(null, { code: "F001", lastNumber: 0 }),
+      "F001-000001"
+    );
+    assert.equal(
+      previewVoucherNumber(null, { code: "b001", lastNumber: 125 }),
+      "B001-000126"
+    );
+  });
+
+  it("sin serie por defecto no inventa un numero: el real lo pone la base", () => {
+    assert.equal(previewVoucherNumber(null, null), "");
+    assert.equal(previewVoucherNumber(null, undefined), "");
+  });
+
+  it("en la edicion muestra el numero ya emitido, no el proximo de la serie", () => {
+    // El numero de un comprobante emitido es inmutable (S13.3): la serie puede haber avanzado y el
+    // preview no puede mostrar un numero que no es el del comprobante que se esta editando.
+    assert.equal(
+      previewVoucherNumber(detail({ voucherNumber: "F001-000007" }), {
+        code: "F001",
+        lastNumber: 125,
+      }),
+      "F001-000007"
+    );
   });
 });
 

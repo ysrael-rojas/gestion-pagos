@@ -7,15 +7,20 @@
 // Diferencias con el origen:
 //
 //   * La escritura va por `VOUCHER_SOURCES[voucherKind]` (POST/PATCH al API), no por PostgREST, y
-//     el body lo arma `toVoucherRequestBody` (que omite `creditDays` en CONTADO: ver el comentario
-//     en `lib/ventas/formulario.ts`).
+//     el body lo arma `toVoucherRequestBody` (que omite `creditDays` en CONTADO y ya no manda el
+//     numero: ver el comentario en `lib/ventas/formulario.ts`).
+//   * Las SERIES se cargan aca (`useVoucherSeries`) y bajan al formulario. No se cargan en la pagina
+//     porque las paginas de ventas son Server Components que no resuelven datos y el transporte del
+//     frontend no reenvia la cookie de sesion desde el servidor de Next (ver el comentario del
+//     hook). Con las series en mano, esta vista puede BLOQUEAR el guardado cuando el alta no tiene
+//     ninguna serie por defecto de venta (S11): el boton queda deshabilitado, no solo el aviso.
 //   * NO hay `advanceSeriesNumber`: el avance del correlativo lo hace la RPC `crear_venta` en la
 //     misma transaccion que el alta (S8). En el origen eran dos llamadas y un toast si la segunda
 //     fallaba (L5).
 //   * NO se refresca un provider de ventas: no hay uno en el layout y el listado recarga al
 //     montarse, asi que volver de una edicion siempre lee datos frescos.
-//   * Los errores del API se muestran tal cual (`ApiError.message`): `Ya registraste una venta con
-//     ese número de comprobante.`, el mensaje del trigger de pagos, etc. No se traducen aca.
+//   * Los errores del API se muestran tal cual (`ApiError.message`): el mensaje del trigger de pagos,
+//     `No hay una serie por defecto para este tipo de comprobante...` (S6), etc. No se traducen aca.
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -26,8 +31,10 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { VOUCHER_FORM_ID, VoucherForm } from "@/components/ventas/voucher-form";
 import { useVoucher } from "@/components/ventas/use-voucher";
+import { useVoucherSeries } from "@/components/ventas/use-voucher-series";
 import { toVoucherRequestBody, voucherCopy } from "@/lib/ventas/formulario";
-import type { VoucherKind, VoucherSeries } from "@/lib/ventas/types";
+import { isSaleSeriesBlocked } from "@/lib/ventas/series";
+import type { VoucherKind } from "@/lib/ventas/types";
 import { VOUCHER_SOURCES } from "@/lib/ventas/ventas";
 import type { VoucherFormValues } from "@gestion/shared/lib/schemas/voucher.ts";
 import { cn } from "@gestion/shared";
@@ -36,11 +43,6 @@ interface VoucherFormViewProps {
   voucherKind: VoucherKind;
   /** Sin id es un alta; con id, la edicion de ese comprobante. */
   voucherId?: string;
-  /**
-   * Series del dueno. El `apps/api` de este slice no las expone: cuando exista el recurso, la
-   * pagina las pasa y el formulario habilita sugerencia de correlativo y la regla de series de S5.
-   */
-  series?: VoucherSeries[];
 }
 
 const SAVED_MESSAGES: Record<VoucherKind, { created: string; updated: string }> = {
@@ -54,14 +56,28 @@ const SAVE_FALLBACK_MESSAGE =
 export function VoucherFormView({
   voucherKind,
   voucherId,
-  series,
 }: VoucherFormViewProps) {
   const router = useRouter();
   const copy = voucherCopy(voucherKind);
   const isEditing = voucherId !== undefined;
+  const isSale = voucherKind === "VENTA";
   const source = VOUCHER_SOURCES[voucherKind];
   const { voucher, isLoading, error } = useVoucher(voucherId, voucherKind);
+  const {
+    series,
+    isLoading: isSeriesLoading,
+    error: seriesError,
+  } = useVoucherSeries(isSale);
   const [isSaving, setIsSaving] = useState(false);
+
+  // S11: sin ninguna serie por defecto de venta no hay alta posible (la base necesita de donde
+  // numerar), asi que el guardado se deshabilita. Solo cuenta cuando la carga TERMINO bien: un error
+  // de red no puede disfrazarse de "no hay series" (para eso esta `seriesError`, que muestra el
+  // texto y deja que el API responda con el suyo).
+  const isSeriesBlocked =
+    !isSeriesLoading &&
+    !seriesError &&
+    isSaleSeriesBlocked({ voucherKind, isEditing, series });
 
   async function handleSubmit(values: VoucherFormValues) {
     setIsSaving(true);
@@ -135,7 +151,9 @@ export function VoucherFormView({
       <VoucherForm
         voucherKind={voucherKind}
         voucher={voucher}
-        series={series}
+        series={isSale ? series : undefined}
+        seriesLoading={isSale && isSeriesLoading}
+        seriesError={seriesError}
         onSubmit={handleSubmit}
       />
 
@@ -150,7 +168,11 @@ export function VoucherFormView({
         >
           Cancelar
         </Link>
-        <Button type="submit" form={VOUCHER_FORM_ID} disabled={isSaving}>
+        <Button
+          type="submit"
+          form={VOUCHER_FORM_ID}
+          disabled={isSaving || isSeriesBlocked}
+        >
           {isSaving ? "Guardando…" : isEditing ? "Guardar cambios" : "Registrar"}
         </Button>
       </div>

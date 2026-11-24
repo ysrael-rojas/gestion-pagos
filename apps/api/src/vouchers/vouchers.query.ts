@@ -1,10 +1,16 @@
 // Esquemas de entrada del vertical de ventas (T3), para pasar por `ZodValidationPipe`.
 //
-// EL BODY ES `voucherFormSchema` DE `@gestion/shared`, no un DTO propio: es el mismo schema que
-// valida el formulario de ventas y compras (S11 lo exige con consumidores reales), asi que los
-// mensajes de S4 y la limpieza de `creditDays` en CONTADO (S3) se comportan igual en la pantalla y
-// en el API. Duplicarlo aca abriria la puerta a que el formulario acepte algo que la base rechaza,
-// o al reves.
+// EL BODY ES EL CONTRATO DE ESCRITURA DE `@gestion/shared` (`voucherWriteSchema`), no un DTO
+// propio ni el schema del formulario: es la misma definicion que valida el formulario de ventas y
+// compras (S11 lo exige con consumidores reales), asi que los mensajes de S4 y la limpieza de
+// `creditDays` en CONTADO (S3) se comportan igual en la pantalla y en el API. Duplicarlo aca
+// abriria la puerta a que el formulario acepte algo que la base rechaza, o al reves.
+//
+// POR QUE NO EL DEL FORMULARIO (S2 del port de series): desde que el numero lo asigna la base
+// dentro de la transaccion del alta, `voucherNumber` no es un dato del cliente. El formulario lo
+// sigue mostrando como preview y por eso lo exige (`voucherFormSchema`); el API no lo puede
+// exigir. Las dos variantes salen del mismo objeto en `packages/shared`, asi que no hay dos listas
+// de reglas que se desincronicen.
 //
 // Lo unico que se agrega encima es el DEFAULT de la fecha de emision (S9), y se agrega por
 // composicion (`z.preprocess` sobre el schema compartido), no reescribiendo sus reglas:
@@ -13,7 +19,7 @@
 //     (`America/Lima`), nunca `toISOString()` ni el reloj del proceso.
 //   * `issueDate` presente pero vacia (`""`) -> sigue siendo el error de S4 ("La fecha de emisión
 //     es requerida"). El default es "no mandaste el campo", no "mandaste cualquier cosa".
-import { getTodayLocalDate, voucherFormSchema } from "@gestion/shared";
+import { getTodayLocalDate, voucherWriteSchema } from "@gestion/shared";
 import { z } from "zod";
 
 /** El "hoy" del negocio cuando el request no manda la fecha de emision (S9). */
@@ -29,7 +35,7 @@ const withDefaultIssueDate = z.preprocess((input) => {
 	}
 
 	return values;
-}, voucherFormSchema);
+}, voucherWriteSchema);
 
 /**
  * Body de `POST /vouchers` y de `PATCH /vouchers/:id`.

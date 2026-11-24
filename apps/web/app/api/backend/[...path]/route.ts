@@ -9,8 +9,8 @@
 // esta capa: lo pone `withOwner` en apps/api a partir de la sesion.
 //
 // Lista blanca de prefijos y metodos: el puente solo alcanza los verticales portados (pagos,
-// clientes y cajas-bancos), no cualquier ruta del API. Un path inesperado responde 404 sin salir
-// del proceso.
+// clientes, cajas-bancos, ventas y series), no cualquier ruta del API. Un path inesperado responde
+// 404 sin salir del proceso.
 //
 // `PATCH` esta porque `PATCH /entities/:id` es la modificacion de cliente (T5c) y
 // `PATCH /settings` la configuracion general de cajas-bancos (C1). Sin el, el navegador recibia
@@ -45,6 +45,10 @@ const ALLOWED_PREFIXES = new Set([
   "receipt-categories",
   "catalogs",
   "settings",
+  // T5 del slice 2: series de comprobante (`/configuracion/series`). El CRUD son `GET/POST /series`,
+  // `PATCH /series/:id` y la baja logica por `POST /series/:id/delete`, asi que no hace falta abrir
+  // el puente a `DELETE` (S9): ese verbo no existe entre los que este proxy reenvia.
+  "series",
 ]);
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH"]);
@@ -89,6 +93,13 @@ async function proxy(
       { message: `No se pudo conectar con el API: ${reason}` },
       { status: 502 },
     );
+  }
+
+  // 204 (y 205/304) NO llevan cuerpo: el constructor de `Response` los rechaza si se le pasa uno,
+  // aunque sea la cadena vacia. `POST /series/:id/delete` responde 204 (S5), y sin esta rama la baja
+  // llegaba al usuario como "El API respondio 500" con la serie ya dada de baja en la base.
+  if (upstream.status === 204 || upstream.status === 205 || upstream.status === 304) {
+    return new Response(null, { status: upstream.status });
   }
 
   // Se devuelve el cuerpo como texto, sin re-serializar: el mensaje de dominio del API tiene que

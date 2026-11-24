@@ -1,10 +1,15 @@
 // e2e del modulo `vouchers` de `apps/api` (T3 del port del vertical ventas, S5/S6/S9 de
-// `odd/tasks/port-vertical-ventas.md`) contra una base viva con las migraciones y los seeds
+// `odd/tasks/port-vertical-ventas.md`; T1 del port del vertical series, S2 de
+// `odd/tasks/port-vertical-series.md`) contra una base viva con las migraciones y los seeds
 // aplicados.
 //
 // Que prueba, en una frase: que el alta, la edicion, el listado y el detalle de un comprobante de
 // VENTA pasan por el camino real (HTTP -> Better Auth -> withOwner -> RPC/RLS), que el dueno sale
 // de la sesion y nunca del payload, y que los mensajes de S6 llegan al cliente con su status.
+//
+// S2 cambia dos cosas de lo que se pina aca: el body ya no lleva el numero (lo asigna la base
+// desde la serie por defecto del tipo, y sin serie por defecto no hay alta) y la edicion no puede
+// cambiarlo. El alta necesita una serie sembrada, que `before` inserta por SQL.
 //
 // Precondiciones de entorno (no se leen de ningun archivo del repo):
 //   DATABASE_URL         la base migrada y sembrada (`packages/db/scripts/apply-sql.mjs` +
@@ -38,12 +43,15 @@ import { loadApiHarness, removeApiHarnessBundle } from "./support/harness-loader
 
 /** Textos de S6, verbatim: el test los compara contra lo que responde el API. */
 const CLIENTE_INEXISTENTE = "El cliente seleccionado no existe.";
-const VENTA_DUPLICADA = "Ya registraste una venta con ese número de comprobante.";
+const SIN_SERIE_POR_DEFECTO =
+	"No hay una serie por defecto para este tipo de comprobante. Configura una en Configuración → Series.";
 const SALDO_INALCANZABLE = "No se pudo cargar el saldo de los comprobantes.";
 const COMPROBANTE_CON_PAGOS =
 	"No se puede modificar un comprobante con pagos registrados: anula los pagos antes de cambiar importe, numero, cliente o fecha";
 /** Texto de la RPC `editar_venta`, que T3 mapea a 404 (ver L10 del doc de la feature). */
 const COMPROBANTE_INEXISTENTE = "El comprobante no existe.";
+/** Texto de S13.3, verbatim: el tipo de un comprobante emitido es inmutable, como su numero. */
+const TIPO_INMUTABLE = "El tipo de un comprobante emitido no se puede cambiar.";
 
 /** Mensaje del pipe de Zod cuando el body no cumple `voucherFormSchema` (S11). */
 const PAYLOAD_INVALIDO = "El payload no cumple el contrato compartido.";
@@ -58,6 +66,7 @@ let firstEntityName: string;
 /** Comprobante del dueno 1 con 200 ya asignados de un total de 500 (saldo abierto 300). */
 let paidVoucherId: string;
 let second: OwnerSession;
+let secondEntityId: string;
 /** Comprobante del dueno 2: el dueno 1 no debe verlo ni poder editarlo. */
 let secondVoucherId: string;
 let secondVoucherNumber: string;
@@ -88,12 +97,17 @@ async function call(
 	return { status: response.status, body: text ? JSON.parse(text) : null };
 }
 
-/** Payload minimo valido de `voucherFormSchema`; cada caso cambia solo lo que mira. */
+/**
+ * Payload minimo valido del contrato de ESCRITURA (`voucherWriteSchema`, S2); cada caso cambia solo
+ * lo que mira.
+ *
+ * SIN `voucherNumber`: el numero dejo de viajar en el body. Lo asigna la base desde la serie por
+ * defecto del tipo y el API devuelve el que quedo escrito.
+ */
 function voucherBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
 		issueDate: "2026-03-15",
 		voucherType: "FACTURA",
-		voucherNumber: "F003-000001",
 		entityId: firstIds.entityId,
 		total: 118,
 		paymentType: "CONTADO",
@@ -110,14 +124,6 @@ async function createVoucher(body: Record<string, unknown>): Promise<any> {
 	assert.equal(result.status, 201, `el alta deberia responder 201: ${JSON.stringify(result.body)}`);
 
 	return result.body;
-}
-
-/** Todos los casos de alta comparten la necesidad de un numero: este los hace unicos. */
-let correlativo = 100;
-function nextNumber(serie = "F003"): string {
-	correlativo += 1;
-
-	return `${serie}-${String(correlativo).padStart(6, "0")}`;
 }
 
 /** Las cuatro rutas del vertical, con entradas validas, para el barrido de 401. */
@@ -152,9 +158,10 @@ before(async () => {
 	]);
 	firstEntityName = entity.rows[0]?.name ?? "";
 
-	// Serie F001 de FACTURA del dueno 1: el avance del correlativo (S7) la necesita con un
-	// `last_number` que el test controle. Los seeds no traen series (el control los declara en
-	// `null`), asi que se siembra aca y `auth.users` la arrastra en el teardown.
+	// Serie F001 de FACTURA del dueno 1, POR DEFECTO y con un `last_number` que el test controla:
+	// desde S2 el alta toma el numero de aca (`code-lpad(last+1, 6, '0')`), asi que sin serie por
+	// defecto no hay venta. Los seeds no traen series (el control los declara en `null`), asi que se
+	// siembra por SQL y `auth.users` la arrastra en el teardown.
 	await pool.query(
 		`insert into public.voucher_series (owner_id, voucher_type, code, last_number, is_default)
 		 values ($1, 'FACTURA', 'F001', 3, true)`,
@@ -178,7 +185,7 @@ before(async () => {
 	});
 
 	second = await createSecondOwner(pool, harness.auth);
-	const secondEntityId = randomUUID();
+	secondEntityId = randomUUID();
 	const tag = second.ownerId.slice(0, 8);
 
 	await pool.query(
@@ -250,12 +257,11 @@ test("GET /vouchers/open sigue siendo la ruta de cartera y no el detalle de un c
 	assert.equal("id" in result.body[0], false);
 });
 
-test("POST /vouchers da de alta la venta y avanza el correlativo de su serie", async () => {
+test("POST /vouchers da de alta la venta y asigna el numero que calculo la base", async () => {
 	// Sin `issueDate` en el body: el API tiene que usar el "hoy" del NEGOCIO (S9), no el reloj del
 	// proceso ni `toISOString()`.
 	const body = voucherBody({
 		voucherType: "FACTURA",
-		voucherNumber: "F001-000007",
 		total: 118,
 	});
 
@@ -282,7 +288,8 @@ test("POST /vouchers da de alta la venta y avanza el correlativo de su serie", a
 	assert.equal(result.body.creditDays, null);
 	assert.equal(result.body.dueDate, null);
 
-	assert.equal(result.body.voucherNumber, "F001-000007");
+	// S2: la serie F001 esta sembrada con `last_number = 3`, asi que la base asigna el 4.
+	assert.equal(result.body.voucherNumber, "F001-000004");
 	assert.equal(result.body.voucherType, "FACTURA");
 	assert.equal(result.body.entityId, firstIds.entityId);
 	assert.equal(result.body.entityName, firstEntityName);
@@ -290,31 +297,58 @@ test("POST /vouchers da de alta la venta y avanza el correlativo de su serie", a
 	assert.equal(result.body.paidAmount, 0);
 	assert.equal(result.body.balance, 118);
 
-	// S7: el correlativo escrito supera `last_number` (3), asi que la serie avanza a 7.
+	// Lo que devuelve el API es EXACTAMENTE lo que hay en la base, no un preview del cliente.
+	const stored = await pool.query<{ voucher_number: string }>(
+		"select voucher_number from public.comprobante where id = $1",
+		[result.body.id],
+	);
+
+	assert.equal(stored.rows[0]?.voucher_number, result.body.voucherNumber);
+
+	// S2: el alta avanzo `last_number` en la misma transaccion.
 	const series = await pool.query<{ last_number: number }>(
 		`select last_number from public.voucher_series
 		  where owner_id = $1 and voucher_type = 'FACTURA' and code = 'F001'`,
 		[first.ownerId],
 	);
 
-	assert.equal(series.rows[0]?.last_number, 7);
+	assert.equal(series.rows[0]?.last_number, 4);
 
-	// S7: el avance es MONOTONO. Un correlativo menor se registra igual (la unicidad la da el
-	// indice, no la serie) y no hace retroceder `last_number`.
-	const lower = await call("POST", "/vouchers", {
+	// S2: un `voucherNumber` que todavia mande el cliente se IGNORA (T5 lo saca del formulario).
+	// El numero es el que asigna la base, no el que viaja en el body.
+	const stray = await call("POST", "/vouchers", {
 		cookie: first.cookie,
-		body: voucherBody({ voucherType: "FACTURA", voucherNumber: "F001-000002", total: 59 }),
+		body: voucherBody({ voucherType: "FACTURA", voucherNumber: "F001-000900", total: 59 }),
 	});
 
-	assert.equal(lower.status, 201, JSON.stringify(lower.body));
+	assert.equal(stray.status, 201, JSON.stringify(stray.body));
+	assert.equal(stray.body.voucherNumber, "F001-000005", "el numero del body no se usa");
 
-	const afterLower = await pool.query<{ last_number: number }>(
+	const afterStray = await pool.query<{ last_number: number }>(
 		`select last_number from public.voucher_series
 		  where owner_id = $1 and voucher_type = 'FACTURA' and code = 'F001'`,
 		[first.ownerId],
 	);
 
-	assert.equal(afterLower.rows[0]?.last_number, 7);
+	assert.equal(afterStray.rows[0]?.last_number, 5);
+});
+
+test("POST /vouchers responde el mensaje de S6 cuando el tipo no tiene serie por defecto", async () => {
+	// El dueno 2 no tiene ninguna serie: sin serie por defecto no hay alta (S2, L4c).
+	const result = await call("POST", "/vouchers", {
+		cookie: second.cookie,
+		body: voucherBody({ entityId: secondEntityId, total: 118 }),
+	});
+
+	assert.equal(result.status, 400, JSON.stringify(result.body));
+	assert.equal(result.body?.message, SIN_SERIE_POR_DEFECTO);
+
+	const stored = await pool.query<{ n: number }>(
+		"select count(*)::int as n from public.comprobante where owner_id = $1",
+		[second.ownerId],
+	);
+
+	assert.equal(stored.rows[0]?.n, 1, "no se escribio ninguna venta nueva");
 });
 
 test("GET /vouchers lista las ventas del dueno de la sesion y ninguna ajena", async () => {
@@ -372,17 +406,17 @@ test("GET /vouchers/:id devuelve el comprobante con su saldo", async () => {
 	assert.equal(invented.body?.message, COMPROBANTE_INEXISTENTE);
 });
 
-test("PATCH /vouchers/:id edita la venta y recalcula el vencimiento de CREDITO", async () => {
-	const created = await createVoucher(
-		voucherBody({ voucherNumber: nextNumber("F004"), total: 236 }),
-	);
+test("PATCH /vouchers/:id edita la venta, recalcula el vencimiento y NO cambia el numero", async () => {
+	const created = await createVoucher(voucherBody({ total: 236 }));
 
-	// Edicion completa (el contrato es el mismo `voucherFormSchema` del formulario) a CREDITO.
+	// Edicion completa (el contrato es el mismo del formulario) a CREDITO. El TIPO viaja con el
+	// que la fila ya tiene: desde S13.3 el tipo de un comprobante emitido es inmutable (el numero
+	// lo asigno la serie de ese tipo), asi que cambiarlo responde 409 con su propio mensaje. El
+	// caso del rechazo lo pina la prueba de abajo.
 	const result = await call("PATCH", `/vouchers/${created.id}`, {
 		cookie: first.cookie,
 		body: voucherBody({
-			voucherNumber: nextNumber("F004"),
-			voucherType: "BOLETA",
+			voucherType: "FACTURA",
 			issueDate: "2026-03-10",
 			total: 590,
 			paymentType: "CREDITO",
@@ -392,7 +426,7 @@ test("PATCH /vouchers/:id edita la venta y recalcula el vencimiento de CREDITO",
 
 	assert.equal(result.status, 200, JSON.stringify(result.body));
 	assert.equal(result.body.id, created.id);
-	assert.equal(result.body.voucherType, "BOLETA");
+	assert.equal(result.body.voucherType, "FACTURA", "el tipo sigue siendo el del alta (S13.3)");
 	assert.equal(result.body.issueDate, "2026-03-10");
 	assert.equal(result.body.subtotal, 500);
 	assert.equal(result.body.igv, 90);
@@ -402,27 +436,43 @@ test("PATCH /vouchers/:id edita la venta y recalcula el vencimiento de CREDITO",
 	// `due_date` es columna generada: la escribe la base (issue_date + credit_days), nunca el API.
 	assert.equal(result.body.dueDate, "2026-03-25");
 	assert.equal(result.body.balance, 590);
+
+	// S2: el numero de un comprobante emitido es inmutable (la correccion va por NC/ND, L4b), y un
+	// `voucherNumber` en el body de la edicion se ignora.
+	assert.equal(result.body.voucherNumber, created.voucherNumber);
+
+	const series = await pool.query<{ last_number: number }>(
+		`select last_number from public.voucher_series
+		  where owner_id = $1 and voucher_type = 'FACTURA' and code = 'F001'`,
+		[first.ownerId],
+	);
+
+	assert.equal(series.rows[0]?.last_number, 6, "la edicion no avanza la serie");
 });
 
-test("PATCH /vouchers/:id responde 409 con el mensaje de duplicado de S6", async () => {
-	const created = await createVoucher(
-		voucherBody({ voucherNumber: nextNumber("F005"), total: 118 }),
-	);
-	const existing = await call("GET", `/vouchers/${paidVoucherId}`, { cookie: first.cookie });
-	const takenNumber = existing.body.voucherNumber;
+test("PATCH /vouchers/:id responde 409 cuando el body cambia el tipo de un comprobante emitido (S13.3)", async () => {
+	const created = await createVoucher(voucherBody({ total: 100 }));
 
+	assert.equal(created.voucherType, "FACTURA");
+
+	// El numero lo asigno la serie de FACTURA: si la fila pasara a BOLETA, un correlativo de
+	// factura quedaria publicado bajo otro tipo. Es un rechazo por ESTADO (409), no un 400: la
+	// peticion esta bien formada y la correccion va por NC/ND.
 	const result = await call("PATCH", `/vouchers/${created.id}`, {
 		cookie: first.cookie,
-		body: voucherBody({ voucherNumber: takenNumber, total: 118 }),
+		body: voucherBody({ voucherType: "BOLETA", total: 900 }),
 	});
 
 	assert.equal(result.status, 409, JSON.stringify(result.body));
-	assert.equal(result.body?.message, VENTA_DUPLICADA);
+	assert.equal(result.body?.message, TIPO_INMUTABLE);
 
-	// La fila no quedo a medias: el numero sigue siendo el de antes.
+	// Nada de la fila cambio: ni el tipo, ni el numero, ni el importe.
 	const unchanged = await call("GET", `/vouchers/${created.id}`, { cookie: first.cookie });
 
+	assert.equal(unchanged.status, 200);
+	assert.equal(unchanged.body.voucherType, "FACTURA");
 	assert.equal(unchanged.body.voucherNumber, created.voucherNumber);
+	assert.equal(unchanged.body.total, 100);
 });
 
 test("PATCH /vouchers/:id rechaza un comprobante con pagos con el mensaje del trigger", async () => {
@@ -431,7 +481,6 @@ test("PATCH /vouchers/:id rechaza un comprobante con pagos con el mensaje del tr
 	const result = await call("PATCH", `/vouchers/${paidVoucherId}`, {
 		cookie: first.cookie,
 		body: voucherBody({
-			voucherNumber: "F002-000001",
 			total: 900,
 		}),
 	});
@@ -453,7 +502,6 @@ test("POST /vouchers guarda CONTADO sin dias aunque el body los mande (S3)", asy
 	const result = await call("POST", "/vouchers", {
 		cookie: first.cookie,
 		body: voucherBody({
-			voucherNumber: nextNumber("F006"),
 			total: 100,
 			paymentType: "CONTADO",
 			creditDays: 30,
@@ -479,7 +527,7 @@ test("el estado lo deriva la base: el `status` del formulario no se escribe", as
 	// PENDIENTE y el API no pisa esa columna.
 	const result = await call("POST", "/vouchers", {
 		cookie: first.cookie,
-		body: voucherBody({ voucherNumber: nextNumber("F007"), total: 118, status: "PAGADO" }),
+		body: voucherBody({ total: 118, status: "PAGADO" }),
 	});
 
 	assert.equal(result.status, 201, JSON.stringify(result.body));
@@ -489,7 +537,7 @@ test("el estado lo deriva la base: el `status` del formulario no se escribe", as
 test("PATCH y POST responden 404 con `El comprobante no existe.` cuando el id no es una venta del dueno", async () => {
 	const invented = await call("PATCH", `/vouchers/${randomUUID()}`, {
 		cookie: first.cookie,
-		body: voucherBody({ voucherNumber: nextNumber("F008") }),
+		body: voucherBody(),
 	});
 
 	assert.equal(invented.status, 404, JSON.stringify(invented.body));
@@ -498,7 +546,7 @@ test("PATCH y POST responden 404 con `El comprobante no existe.` cuando el id no
 	// El comprobante de otro dueno responde lo mismo: no se filtra su existencia.
 	const foreign = await call("PATCH", `/vouchers/${secondVoucherId}`, {
 		cookie: first.cookie,
-		body: voucherBody({ voucherNumber: nextNumber("F008") }),
+		body: voucherBody(),
 	});
 
 	assert.equal(foreign.status, 404, JSON.stringify(foreign.body));
@@ -508,7 +556,7 @@ test("PATCH y POST responden 404 con `El comprobante no existe.` cuando el id no
 test("POST /vouchers responde 404 con `El cliente seleccionado no existe.`", async () => {
 	const result = await call("POST", "/vouchers", {
 		cookie: first.cookie,
-		body: voucherBody({ voucherNumber: nextNumber("F009"), entityId: randomUUID() }),
+		body: voucherBody({ entityId: randomUUID() }),
 	});
 
 	assert.equal(result.status, 404, JSON.stringify(result.body));
@@ -516,17 +564,13 @@ test("POST /vouchers responde 404 con `El cliente seleccionado no existe.`", asy
 });
 
 test("POST /vouchers rechaza el body con los mensajes del contrato compartido (S4/S11)", async () => {
-	// El `issues` sale del MISMO `voucherFormSchema` que valida el formulario: si el API tuviera un
-	// DTO propio, el texto (y el contrato) serian otros.
-	const badNumber = await call("POST", "/vouchers", {
-		cookie: first.cookie,
-		body: voucherBody({ voucherNumber: "F001" }),
-	});
-
-	assert.equal(badNumber.status, 400);
-	assert.equal(badNumber.body?.message, PAYLOAD_INVALIDO);
-	assert.equal(badNumber.body?.issues?.[0]?.message, "Usa el formato serie-correlativo, por ejemplo F001-000001");
-
+	// El `issues` sale del MISMO schema que valida el formulario: si el API tuviera un DTO propio,
+	// el texto (y el contrato) serian otros.
+	//
+	// El numero ya NO se valida aca: dejo de ser un campo del contrato de escritura (S2). El
+	// formulario lo sigue exigiendo (`voucherFormSchema`) para el preview, y eso lo pina
+	// `apps/web/lib/ventas/formulario.test.ts`.
+	//
 	// `""` no es "sin fecha": la fecha de emision vacia sigue siendo el mensaje de S4.
 	const emptyDate = await call("POST", "/vouchers", {
 		cookie: first.cookie,
@@ -534,7 +578,17 @@ test("POST /vouchers rechaza el body con los mensajes del contrato compartido (S
 	});
 
 	assert.equal(emptyDate.status, 400);
+	assert.equal(emptyDate.body?.message, PAYLOAD_INVALIDO);
 	assert.equal(emptyDate.body?.issues?.[0]?.message, "La fecha de emisión es requerida");
+
+	// El tipo sigue siendo un enum cerrado: un tipo que no existe no llega a la base.
+	const badType = await call("POST", "/vouchers", {
+		cookie: first.cookie,
+		body: voucherBody({ voucherType: "REMITO" }),
+	});
+
+	assert.equal(badType.status, 400);
+	assert.equal(badType.body?.issues?.[0]?.message, "Selecciona el tipo de comprobante");
 });
 
 test("S6: el mensaje del saldo no se confunde con el generico de la base", async () => {

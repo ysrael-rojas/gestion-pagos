@@ -1,9 +1,15 @@
-// Lectura de filas del vertical de ventas para el spec 10 (T5 del port).
+// Lectura de filas del vertical de ventas para los specs 10 y 11 (T5 y T6 del port).
 //
 // Mismo criterio que `clientes-fixtures.ts`: `owner.ts` siembra el comprobante y lo borra, pero no
 // devuelve la fila, y los casos de S11 necesitan afirmar lo que quedo ESCRITO (los montos que
 // derivo el formulario con el 18 %, el estado, los dias de credito en NULL, la asignacion del
 // pago que despues bloquea la edicion). Sin esto, el spec solo probaria lo que se ve en pantalla.
+//
+// Desde el slice 2 (S2) hay una segunda razon, y es la mas importante: el numero del comprobante ya
+// no lo tipea el usuario, lo asigna la base desde la serie por defecto del tipo. La unica forma de
+// afirmar "sin huecos" es leer la tabla `comprobante` (los numeros que quedaron escritos) y la
+// tabla `voucher_series` (`last_number`, que avanzo la misma transaccion). Por eso este archivo
+// tambien siembra series y las lee, incluidas las dadas de baja.
 //
 // Todo es aditivo: no cambia ningun helper existente ni el baseline de conteos (`database.ts`).
 // Las filas que el spec crea (por la UI o por fixtures) salen con el dueno en
@@ -229,4 +235,150 @@ export function allocationsOf(owner: Owner, comprobanteId: string): AllocationRo
 
 		return { paymentId, amount: Number(amount), paymentStatus };
 	});
+}
+
+/**
+ * Tipos que pueden tener serie: los TRES que la app emite (S4).
+ *
+ * `NOTA_CREDITO`, `NOTA_DEBITO` y `COMPROBANTE_RETENCION` existen en el enum pero `crear_serie` los
+ * rechaza (`20261126090000_series_rules.sql`, S13.2), asi que una fixture que los pidiera solo
+ * podria fallar.
+ */
+export type SeriesVoucherType = "FACTURA" | "BOLETA" | "NOTA_VENTA";
+
+/** Los mismos tres tipos, como lista, para validar la entrada de la fixture. */
+const SERIES_VOUCHER_TYPES: SeriesVoucherType[] = ["FACTURA", "BOLETA", "NOTA_VENTA"];
+
+/** Fila de `public.voucher_series` que el spec necesita afirmar. */
+export interface SeriesRow {
+	id: string;
+	voucherType: string;
+	code: string;
+	/** Ultimo correlativo usado: el proximo numero que asigna la base es `lastNumber + 1` (S2). */
+	lastNumber: number;
+	isDefault: boolean;
+	/** `null` mientras la serie este viva; `eliminar_serie` escribe la fecha (S5). */
+	deletedAt: string | null;
+}
+
+const SERIES_COLUMNS = [
+	"id",
+	"voucher_type::text",
+	"code",
+	"last_number::text",
+	"is_default::text",
+	"coalesce(deleted_at::text, '')",
+].join(" || '|' || ");
+
+/**
+ * Filas de `voucher_series` del dueno, **dadas de baja incluidas**.
+ *
+ * Sin filtro por `deleted_at` a proposito: el borrado de una serie es LOGICO (S5), asi que la
+ * unica prueba de que la baja dejo de existir para el usuario y siguio existiendo en la base es
+ * ver la fila con su `deleted_at`. El orden es el del API (`por tipo y codigo`).
+ */
+export function seriesRows(owner: Owner): SeriesRow[] {
+	const sql =
+		`select ${SERIES_COLUMNS} from public.voucher_series ` +
+		`where owner_id = ${sqlText(owner.id)} order by voucher_type, code;\n`;
+
+	return psqlLines(sql).map((line) => {
+		const fields = line.split("|");
+
+		if (fields.length !== 6) {
+			throw new Error(
+				`Fila de serie ilegible (${fields.length} campos): ${JSON.stringify(line)}`,
+			);
+		}
+
+		const [id, voucherType, code, lastNumber, isDefault, deletedAt] = fields as [
+			string,
+			string,
+			string,
+			string,
+			string,
+			string,
+		];
+
+		return {
+			id,
+			voucherType,
+			code,
+			lastNumber: Number(lastNumber),
+			isDefault: isDefault === "true",
+			deletedAt: deletedAt === "" ? null : deletedAt,
+		};
+	});
+}
+
+/**
+ * La serie del dueno con ese tipo y codigo, o `null`. **Incluye las dadas de baja**: el caso de
+ * baja logica de S8 necesita leer la fila que la pantalla ya no muestra.
+ *
+ * El codigo se normaliza a mayusculas porque es lo que hace la base (la RPC hace `btrim` y la
+ * pantalla sube el caso al tipear).
+ */
+export function seriesByCode(
+	owner: Owner,
+	voucherType: SeriesVoucherType,
+	code: string,
+): SeriesRow | null {
+	const normalized = code.trim().toUpperCase();
+
+	return (
+		seriesRows(owner).find(
+			(row) => row.voucherType === voucherType && row.code === normalized,
+		) ?? null
+	);
+}
+
+/** Una serie sembrada por SQL, con el correlativo desde el que arranca. */
+export interface InsertSeriesInput {
+	owner: Owner;
+	voucherType: SeriesVoucherType;
+	/** 1 a 4 alfanumericos; el CHECK de la tabla es el juez (`^[A-Za-z0-9]{1,4}$`). */
+	code: string;
+	/** Ultimo correlativo ya usado. Default 0: la primera venta sera `-000001`. */
+	lastNumber?: number;
+	/** Default `false`. Marcar dos del mismo tipo choca con el indice unico parcial (S3). */
+	isDefault?: boolean;
+}
+
+/**
+ * Siembra una serie de comprobante.
+ *
+ * Por que por SQL y no por la pantalla: el alta por `/configuracion/series` la prueba el spec 11,
+ * y el spec 10 necesita una serie ANTES de poder registrar la primera venta (S2/S11). Sembrarla
+ * deja el caso de ventas midiendo lo suyo —que el numero lo asigne la base— sin depender de que la
+ * pantalla de series este bien.
+ *
+ * `last_number` se escribe tal cual: es el contrato de la fixture (el caso afirma que la primera
+ * venta sale `-000001` y la segunda `-000002`), no una simulacion del avance de la RPC.
+ */
+export function insertSeries(input: InsertSeriesInput): SeriesRow {
+	const lastNumber = input.lastNumber ?? 0;
+	const isDefault = input.isDefault ?? false;
+
+	if (!SERIES_VOUCHER_TYPES.includes(input.voucherType)) {
+		throw new Error(`Tipo de serie no soportado por la fixture: ${JSON.stringify(input.voucherType)}`);
+	}
+
+	if (!Number.isInteger(lastNumber) || lastNumber < 0) {
+		throw new Error(`lastNumber invalido para la fixture: ${JSON.stringify(lastNumber)}`);
+	}
+
+	const id = randomUUID();
+
+	psqlLines(
+		`insert into public.voucher_series (id, owner_id, voucher_type, code, last_number, is_default)
+		 values ('${id}', ${sqlText(input.owner.id)}, '${input.voucherType}', ${sqlText(input.code.trim().toUpperCase())}, ${lastNumber}, ${isDefault});\n`,
+	);
+
+	const saved = seriesRows(input.owner).find((row) => row.id === id);
+
+	if (!saved) {
+		throw new Error(`La serie sembrada no quedo legible: ${JSON.stringify(input.code)}`);
+	}
+
+	return saved;
 }

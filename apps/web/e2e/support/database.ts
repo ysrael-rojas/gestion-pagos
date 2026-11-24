@@ -19,6 +19,10 @@ import { psqlLines } from "./psql";
 export const COUNTED_TABLES = [
 	"public.entidad",
 	"public.comprobante",
+	// Series de comprobante (slice 2, S3): el spec 10 siembra una para poder registrar la primera
+	// venta y el spec 11 crea, edita y da de baja por la pantalla. Sin contarla, una fila que el
+	// teardown olvidara se acumularia en silencio (L5 del vertical de cajas-bancos).
+	"public.voucher_series",
 	"public.payment",
 	"public.payment_allocation",
 	"public.cash_account",

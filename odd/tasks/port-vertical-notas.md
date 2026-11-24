@@ -156,12 +156,12 @@ detalle) y `specs/11-series` ampliado con la serie de nota de crédito.
 
 | ID | Spec | Ruta | Estado |
 | --- | --- | --- | --- |
-| T1 | S3, S5, S6 | worker: migración con `crear_nota`, tope como invariante de base y `crear_serie` aceptando los tipos de nota, con tests SQL | pendiente |
-| T2 | S2, S9, S11 | inline: contratos en `packages/shared` (tipo de fila de nota, tipos de serie que se emiten) + tests | pendiente |
-| T3 | S10 | worker: módulo `notes` en `apps/api` (alta, listado por comprobante, mapa de errores) + e2e | pendiente |
-| T4 | S11 | worker: solapa de notas en el detalle de venta + formulario de alta + tipos de nota en la pantalla de series | pendiente |
-| T5 | S10, S12 | worker: allowlist del BFF, e2e `12-notas` y ampliación de `11-series` | pendiente |
-| T6 | S12 | parent: contadores de `.github/CI.md`, log y cierre | pendiente |
+| T1 | S3, S5, S6 | worker: migración con `crear_nota`, tope como invariante de base y `crear_serie` aceptando los tipos de nota, con tests SQL | hecho (L4) |
+| T2 | S2, S9, S11 | inline: contratos en `packages/shared` (tipo de fila de nota, tipos de serie que se emiten) + tests | hecho (L5) |
+| T3 | S10 | worker: módulo `notes` en `apps/api` (alta, listado por comprobante, mapa de errores) + e2e | hecho (L6) |
+| T4 | S11 | worker: solapa de notas en el detalle de venta + formulario de alta + tipos de nota en la pantalla de series | hecho (L7) |
+| T5 | S10, S12 | worker: allowlist del BFF, e2e `12-notas` y ampliación de `11-series` | hecho (L7) |
+| T6 | S12 | parent: contadores de `.github/CI.md`, log y cierre | hecho (L8) |
 
 ## Log
 
@@ -185,3 +185,47 @@ el comprobante referenciado bloqueado; (c) una nota no se edita (tipo y referenc
 por trigger); (d) `status` de la nota `PAGADO`, porque no es cobrable ni pagable; (e) la retención
 queda para su propio slice aunque comparta contrato; (f) el alta se hace desde el detalle del
 comprobante, no en un listado aparte como en el origen.
+
+**L4** (evidencia, T1 cerrada): migración `20261127090000_notas_rpcs.sql` con `crear_nota`
+(SECURITY DEFINER, dos locks en orden: comprobante referenciado y después la serie) y `crear_serie`
+aceptando los cinco tipos emitibles. Tope verificado **bajo concurrencia**: con la primera nota
+sosteniendo el lock, la segunda espera y después se rechaza sin consumir correlativo. La consulta
+del correlativo inicial de `crear_serie` no necesitó cambios (las notas son `voucher_kind =
+'VENTA'`). Evidencia: `notas-rpc.e2e.test.ts` 13/13, API **207/207**, `db:check-rls` 47/47 y
+`dump-schema --check` en sincronía. Un chequeo diferencial contra la `crear_serie` del commit base
+sobre 25 entradas dio 0 diferencias.
+
+Dos cosas que el trabajo destapó: el test de S13.2 en `ventas-rpc.e2e.test.ts` y una aserción de
+`series.e2e.test.ts` pineaban los tres tipos (mi cambio de T2 los dejó rojos: la suite del API se
+tiene que correr también cuando se toca un contrato compartido); y el trigger
+`comprobante_validate_adjustment` solo mira el **tipo**, no el `voucher_kind`, así que una nota sobre
+una compra habría entrado en silencio: la RPC agrega esa guarda con el texto de S10.
+
+**L5** (evidencia, T2 cerrada): `notaWriteSchema` derivado del mismo objeto que el formulario (el
+número opcional, porque lo asigna la base), `voucherAdjustmentSchema` como contrato de fila, y
+`ISSUED_SERIES_VOUCHER_TYPES` ampliado a los cinco tipos emitibles. `apps/web/lib/notas/contrato.test.ts`
+5/5 y los contratos de serie actualizados. Un error de tipos propio (genérico sobre `voucherNumber` +
+narrowing del enum dentro del `superRefine`) se corrigió con un cast comentado, no aflojando el
+schema.
+
+**L6** (evidencia, T3 cerrada): módulo `notes` con `POST /notes` y `GET /notes?voucherId=` —el
+prefijo `notes` en lugar de `/vouchers/:id/notes` es deliberado: el orden de registro de `AppModule`
+para `/vouchers` ya rompió una vez la ruta de cartera. El mapa traduce el `42501` de
+`comprobante_owner_consistency` al texto de S10, para que un mensaje de trigger que nombra tablas no
+llegue al cliente. API **224/224**.
+
+**L7** (evidencia, T4 y T5 cerradas): `apps/web/lib/notas/**` (20 casos), el modal y la sección
+"Notas de crédito/débito" en el detalle de venta, `notes` en la allowlist del puente, `specs/12-notas`
+nuevo (4 casos) y `specs/11-series` ampliado (5). Web **210/210**, `typecheck` 4/4, build en 0 y
+`pnpm e2e` **37/37** en 12 specs (8m36s) con los conteos del teardown intactos.
+
+**L8** (evidencia, T6 y slice cerrados): contadores de `.github/CI.md` actualizados (API 194→**224**,
+web 181→**210**, e2e 32 en 11 specs→**37 en 12 specs**) y fila `12-notas` en el catálogo.
+
+Queda afuera del slice, anotado: `COMPROBANTE_RETENCION` (su propio slice; el tope de la pantalla
+solo suma notas de crédito porque la retención aún no existe), compras, guías y CPE. Y una deuda
+chica: hay **dos** mapeos Drizzle de `public.comprobante` (`vouchers/comprobante.table.ts` y
+`notes/note.table.ts`, este último con las columnas de ajuste); el traspaso a
+`src/db/schema/comprobante.ts` sigue pendiente y conviene hacerlo antes de compras. Publicar la rama
+es decisión del humano: los commits están en `feat/vertical-ventas-notas`, colgada de
+`feat/vertical-ventas-series` (PR #25).

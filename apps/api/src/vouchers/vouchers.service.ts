@@ -3,10 +3,11 @@
 //
 // Tres decisiones que no son de estilo:
 //
-// 1. LAS ESCRITURAS VAN POR RPC, NO POR DML (S8). `authenticated` no tiene UPDATE ni DELETE sobre
-//    `comprobante` ni sobre `voucher_series` (`20261124090000_revoke_payments_writes.sql`), y el
-//    avance del correlativo tiene que pasar en la MISMA transaccion que el comprobante. Por eso
-//    `crear_venta` / `editar_venta` (`20261124120000_ventas_rpcs.sql`), `security definer`, se
+// 1. LAS ESCRITURAS VAN POR RPC, NO POR DML (S8 del slice 1, S2 y S5 del slice de series).
+//    `authenticated` no tiene UPDATE ni DELETE sobre `comprobante` ni sobre `voucher_series`
+//    (`20261124090000_revoke_payments_writes.sql`), y desde S2 el correlativo lo asigna la base
+//    desde la serie por defecto del tipo, en la MISMA transaccion que el comprobante. Por eso
+//    `crear_venta` / `editar_venta` (`20261125090000_series_rpcs.sql`), `security definer`, se
 //    llaman con `withOwner`, que fija `app.user_id` y cambia el rol a `authenticated` antes del
 //    `select`. Es el mismo camino que `cash/closes.service.ts`.
 //
@@ -22,14 +23,21 @@
 //
 // `status` NO se escribe: lo deriva la tabla (`default 'PENDIENTE'`) y lo recalcula
 // `private.refresh_comprobante_status` al asignar o anular pagos. El body lo trae porque es parte
-// de `voucherFormSchema`, y se ignora a proposito (L8 del doc de la feature). `due_date` tampoco se
-// escribe: es una columna generada (`issue_date + credit_days`) y la base la calcula sola (S9).
+// del contrato del formulario, y se ignora a proposito (L8 del doc de la feature). `due_date`
+// tampoco se escribe: es una columna generada (`issue_date + credit_days`) y la base la calcula
+// sola (S9). `voucherNumber` viaja en el body MIENTRAS el formulario lo siga mandando, y tambien
+// se ignora: desde S2 el numero lo asigna la base desde la serie por defecto del tipo, y el de un
+// comprobante emitido es inmutable (L4b).
 //
-// FUERA DE ALCANCE, decidido y escrito (S5): la regla "FACTURA exige cliente con RUC" NO se valida
-// aca. No esta en `voucherFormSchema` ni en la base, es una regla de PANTALLA del origen, y
-// validarla en el API romperia la edicion de comprobantes historicos emitidos antes de esa regla
-// (y el formulario es compartido con compras). Queda como validacion de UI en T4, con los mensajes
-// de S5. Si alguna vez se quiere como invariante de datos, va a la base, no a este servicio.
+// FUERA DE ALCANCE, decidido y escrito (S5 del slice 1): la regla "FACTURA exige cliente con RUC"
+// NO se valida aca. No esta en el contrato compartido ni en la base, es una regla de PANTALLA del
+// origen, y validarla en el API romperia la edicion de comprobantes historicos emitidos antes de
+// esa regla (y el formulario es compartido con compras). Queda como validacion de UI en T4, con
+// los mensajes de S5. Si alguna vez se quiere como invariante de datos, va a la base, no a este
+// servicio.
+//
+// El modulo de SERIES (CRUD de `voucher_series`) es de T3 y no vive aca: este slice solo cambia la
+// asignacion del numero en el alta/edicion de ventas.
 import { Inject, Injectable } from "@nestjs/common";
 import type {
 	PaymentType,
@@ -190,13 +198,15 @@ export class VouchersService {
 	}
 
 	/**
-	 * `POST /vouchers` — alta por `crear_venta` (9 argumentos posicionales, S8).
+	 * `POST /vouchers` — alta por `crear_venta` (8 argumentos posicionales, S2).
 	 *
-	 * Argumentos de `20261124120000_ventas_rpcs.sql`, en ese orden: (entidad, tipo, numero, fecha de
+	 * Argumentos de `20261125090000_series_rpcs.sql`, en ese orden: (entidad, tipo, fecha de
 	 * emision, subtotal, igv, total, tipo de pago, dias de credito). El `owner_id` y el
-	 * `voucher_kind = 'VENTA'` los pone la RPC: no viajan en el body.
+	 * `voucher_kind = 'VENTA'` los pone la RPC: no viajan en el body. El NUMERO tampoco viaja desde
+	 * S2: lo asigna la base desde la serie por defecto del tipo, en la misma transaccion, y por eso
+	 * la respuesta trae el que quedo escrito y no un eco del payload.
 	 *
-	 * `creditDays` llega ya normalizado por `voucherFormSchema` (null en CONTADO, S3), asi que el
+	 * `creditDays` llega ya normalizado por el contrato compartido (null en CONTADO, S3), asi que el
 	 * CHECK `comprobante_credit_days` no se viola por un valor viejo del formulario.
 	 */
 	async create(ownerId: string, body: VoucherBody): Promise<VoucherDetail> {
@@ -207,7 +217,6 @@ export class VouchersService {
 					select public.crear_venta(
 						${body.entityId}::uuid,
 						${body.voucherType}::public.voucher_type,
-						${body.voucherNumber}::text,
 						${body.issueDate}::date,
 						${subtotal}::numeric,
 						${igv}::numeric,
@@ -234,11 +243,14 @@ export class VouchersService {
 	}
 
 	/**
-	 * `PATCH /vouchers/:id` — edicion por `editar_venta` (10 argumentos: el id primero, S8).
+	 * `PATCH /vouchers/:id` — edicion por `editar_venta` (9 argumentos: el id primero, S2).
 	 *
 	 * El dueno sale de la FILA (la RPC la bloquea con `for update` y la compara con `auth.uid()`),
 	 * no del payload. Si el comprobante tiene pagos, el trigger `comprobante_protect_paid` responde
 	 * su mensaje y la RPC lo re-lanza sin tocar: este servicio no lo puede saltar (S6).
+	 *
+	 * El NUMERO no se manda: el de un comprobante emitido es inmutable (L4b) y la RPC ya no lo
+	 * recibe. La respuesta es el detalle releido, con el mismo numero que tenia.
 	 */
 	async edit(ownerId: string, id: string, body: VoucherBody): Promise<VoucherDetail> {
 		try {
@@ -249,7 +261,6 @@ export class VouchersService {
 						${id}::uuid,
 						${body.entityId}::uuid,
 						${body.voucherType}::public.voucher_type,
-						${body.voucherNumber}::text,
 						${body.issueDate}::date,
 						${subtotal}::numeric,
 						${igv}::numeric,

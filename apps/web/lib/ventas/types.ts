@@ -44,20 +44,24 @@ export interface VoucherListItem {
 }
 
 /**
- * Body de `POST /vouchers` y `PATCH /vouchers/:id`.
+ * Body de escritura de un comprobante: `POST/PATCH /vouchers` (venta) y `POST/PATCH /purchases`
+ * (compra).
  *
  * `creditDays` es OPCIONAL porque en CONTADO no viaja (el campo se omite, no se manda `null`: ver
  * `toVoucherRequestBody`). `dueDate` y `registrationDate` no estan: son columnas de la base
  * (`due_date` es generada) y `status` lo recalcula la tabla cuando se asignan o anulan pagos.
  *
- * `voucherNumber` tampoco esta (T5 del slice 2, S11): el numero lo asigna la base desde la serie
- * por defecto del tipo, dentro de la transaccion del alta (S2). El preview que muestra la pantalla
- * es de solo lectura y no es parte del cuerpo. El contrato de escritura del API todavia lo acepta
- * y lo ignora (`voucherWriteSchema`), pero ningun cliente de este repo lo manda.
+ * `voucherNumber` es OPCIONAL y solo lo manda el vertical de COMPRAS: en una compra el numero lo
+ * emitio el proveedor, lo tipea el usuario y `purchaseWriteSchema` lo EXIGE (S2 del slice 4). En una
+ * venta lo asigna la base desde la serie por defecto del tipo, dentro de la transaccion del alta
+ * (S2/S11 del slice 2): el preview que muestra la pantalla es de solo lectura y no viaja, y el
+ * contrato de escritura de la venta lo acepta y lo ignora.
  */
 export interface VoucherWriteBody {
   issueDate: string;
   voucherType: VoucherType;
+  /** Solo compras: el numero del comprobante que emitio el proveedor (S2). */
+  voucherNumber?: string;
   entityId: string;
   total: number;
   paymentType: PaymentType;

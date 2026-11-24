@@ -1,15 +1,18 @@
 "use client";
 
-// Columnas del listado de ventas (port de `components/ventas/sales-columns.tsx` del origen, 231
-// lineas). Es una fabrica de columnas, no un componente: la tabla le pasa los handlers de fila y
+// Columnas del listado de comprobantes (port de `components/ventas/sales-columns.tsx` del origen,
+// 231 lineas). Es una fabrica de columnas, no un componente: la tabla le pasa los handlers de fila y
 // memoiza el resultado, igual que `clients-columns.tsx` y `payments-columns.tsx`.
 //
-// S10 fija las seis columnas y las acciones:
-//   F. emisión · T. comprobante · Nro comprobante · Cliente · Total · Estado pago
+// S10 fija las seis columnas y las acciones, para ventas Y para compras:
+//   F. emisión · T. comprobante · Nro comprobante · Cliente/Proveedor · Total · Estado pago
 //   Ver, Editar, y `Registrar pago` SOLO cuando el comprobante esta pendiente.
+// El vertical entra por `voucherKind` (S10 del doc de compras): lo unico que cambia es el encabezado
+// de la entidad (`Cliente` / `Proveedor`) y a que alta de recibos lleva `Registrar pago` (ingresos /
+// egresos). El resto son las mismas columnas sobre la misma fila.
 //
 // Diferencias con el origen:
-//   * Los textos de las celdas ya vienen resueltos en `VentaTableRow` (`lib/ventas/tabla.ts`), asi
+//   * Los textos de las celdas ya vienen resueltos en `VoucherTableRow` (`lib/ventas/tabla.ts`), asi
 //     que la columna no repite `formatDate`/`getOptionLabel` ni el cruce con la lista de clientes.
 //   * `Registrar pago` es un ENLACE al vertical de pagos (`paymentEntryHref`), no el drawer de
 //     cobro del origen: ese drawer no se porta en este slice.
@@ -38,10 +41,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { VoucherKind } from "@/lib/ventas/types";
 import {
   canRegisterPayment,
   paymentEntryHref,
-  type VentaTableRow,
+  voucherListCopy,
+  type VoucherTableRow,
 } from "@/lib/ventas/tabla";
 import { cn } from "@gestion/shared";
 
@@ -59,11 +64,13 @@ export const ventasTableFeatures = tableFeatures({
 
 export type VentasTableFeatures = typeof ventasTableFeatures;
 
-const columnHelper = createColumnHelper<VentasTableFeatures, VentaTableRow>();
+const columnHelper = createColumnHelper<VentasTableFeatures, VoucherTableRow>();
 
 interface VentasColumnsActions {
-  onView: (row: VentaTableRow) => void;
-  onEdit: (row: VentaTableRow) => void;
+  /** Vertical de la tabla: decide el encabezado de la entidad y el destino de `Registrar pago`. */
+  voucherKind: VoucherKind;
+  onView: (row: VoucherTableRow) => void;
+  onEdit: (row: VoucherTableRow) => void;
 }
 
 /** Encabezado ordenable, con la alineacion de la columna. */
@@ -92,7 +99,13 @@ function SortableHeader({
   );
 }
 
-export function getVentasColumns({ onView, onEdit }: VentasColumnsActions) {
+export function getVentasColumns({
+  voucherKind,
+  onView,
+  onEdit,
+}: VentasColumnsActions) {
+  const copy = voucherListCopy(voucherKind);
+
   return columnHelper.columns([
     columnHelper.accessor("issueDate", {
       header: ({ column }) => (
@@ -131,7 +144,7 @@ export function getVentasColumns({ onView, onEdit }: VentasColumnsActions) {
       id: "entity",
       header: ({ column }) => (
         <SortableHeader
-          label="Cliente"
+          label={copy.entityColumn}
           align="start"
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
@@ -171,7 +184,7 @@ export function getVentasColumns({ onView, onEdit }: VentasColumnsActions) {
       id: "actions",
       header: () => <span className="sr-only">Acciones</span>,
       cell: ({ row }) => {
-        const venta = row.original;
+        const voucher = row.original;
 
         return (
           <TooltipProvider>
@@ -182,7 +195,7 @@ export function getVentasColumns({ onView, onEdit }: VentasColumnsActions) {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => onView(venta)}
+                      onClick={() => onView(voucher)}
                     />
                   }
                 >
@@ -191,12 +204,12 @@ export function getVentasColumns({ onView, onEdit }: VentasColumnsActions) {
                 </TooltipTrigger>
                 <TooltipContent>Ver</TooltipContent>
               </Tooltip>
-              {canRegisterPayment(venta.status) ? (
+              {canRegisterPayment(voucher.status) ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Link
-                        href={paymentEntryHref(venta)}
+                        href={paymentEntryHref(voucher, voucherKind)}
                         className={buttonVariants({
                           variant: "ghost",
                           size: "icon-sm",
@@ -216,7 +229,7 @@ export function getVentasColumns({ onView, onEdit }: VentasColumnsActions) {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => onEdit(venta)}
+                      onClick={() => onEdit(voucher)}
                     />
                   }
                 >

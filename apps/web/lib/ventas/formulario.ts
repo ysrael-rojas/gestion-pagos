@@ -204,12 +204,15 @@ export function previewVoucherNumber(
  * `status` viaja porque es parte del contrato del formulario, aunque el API no lo escriba: lo
  * deriva la tabla y lo recalcula `refresh_comprobante_status` al asignar o anular pagos.
  *
- * `voucherNumber` NO viaja (T5 del slice 2, S11): el numero lo asigna la base desde la serie por
- * defecto del tipo (S2) y el `preview` de la pantalla es solo una ayuda visual. El contrato de
- * escritura (`voucherWriteSchema`) sigue aceptandolo y ignorandolo por compatibilidad, pero el
- * cliente ya no lo manda.
+ * `voucherNumber` viaja SOLO en compras (S2 del slice 4): ahi el numero lo emitio el PROVEEDOR, lo
+ * tipea el usuario y el contrato de escritura (`purchaseWriteSchema`) lo exige. En ventas NO viaja
+ * (T5 del slice 2, S11): lo asigna la base desde la serie por defecto del tipo y el `preview` de la
+ * pantalla es solo una ayuda visual.
  */
-export function toVoucherRequestBody(values: VoucherFormValues): VoucherWriteBody {
+export function toVoucherRequestBody(
+  values: VoucherFormValues,
+  voucherKind: VoucherKind = "VENTA"
+): VoucherWriteBody {
   const body: VoucherWriteBody = {
     issueDate: values.issueDate,
     voucherType: values.voucherType,
@@ -218,6 +221,10 @@ export function toVoucherRequestBody(values: VoucherFormValues): VoucherWriteBod
     paymentType: values.paymentType,
     status: values.status,
   };
+
+  if (voucherKind === "COMPRA") {
+    body.voucherNumber = values.voucherNumber;
+  }
 
   if (values.creditDays != null) {
     body.creditDays = values.creditDays;

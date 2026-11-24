@@ -1,6 +1,9 @@
 "use client";
 
-// Filtros del listado de ventas (S10): `Desde`, `Hasta`, `Estado pago` y `Limpiar filtros`.
+// Filtros del listado de comprobantes (S10): `Desde`, `Hasta`, `Estado pago` y `Limpiar filtros`.
+// Sirve a ventas y a compras sin cambios: los filtros son los mismos (`applyListadoFilters`), las
+// etiquetas son las mismas y el estado se escribe en la URL del listado actual (`usePathname`), asi
+// que el toolbar no necesita saber en que vertical esta montado.
 //
 // Es el mismo patron que `components/pagos/payments-listings-toolbar.tsx`: los filtros viven en la
 // URL (`?desde=&hasta=&estado=`) y el listado los lee con `parseListadoFilters`. Asi el estado
@@ -25,13 +28,13 @@ import {
 } from "@/components/ui/select";
 import type { ListadoFilters } from "@/lib/filters/listado-filters";
 import {
-  VENTA_STATUS_FILTER_OPTIONS,
-  hasActiveVentaFilters,
+  VOUCHER_STATUS_FILTER_OPTIONS,
+  hasActiveVoucherFilters,
 } from "@/lib/ventas/tabla";
 
 interface VentasListadoToolbarProps {
   filters: ListadoFilters<string>;
-  /** Accion principal de la pantalla (`Registrar venta`). */
+  /** Accion principal de la pantalla (`Registrar venta` / `Registrar compra`). */
   children: ReactNode;
 }
 
@@ -98,14 +101,14 @@ export function VentasListadoToolbar({
           <Label>Estado pago:</Label>
           <Select
             value={filters.estado}
-            items={VENTA_STATUS_FILTER_OPTIONS}
+            items={VOUCHER_STATUS_FILTER_OPTIONS}
             onValueChange={(value) => updateFilter("estado", value ?? "TODOS")}
           >
             <SelectTrigger aria-label="Estado pago">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {VENTA_STATUS_FILTER_OPTIONS.map((option) => (
+              {VOUCHER_STATUS_FILTER_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -113,7 +116,7 @@ export function VentasListadoToolbar({
             </SelectContent>
           </Select>
         </div>
-        {hasActiveVentaFilters(filters) ? (
+        {hasActiveVoucherFilters(filters) ? (
           <Button variant="ghost" onClick={clearFilters}>
             <X />
             Limpiar filtros

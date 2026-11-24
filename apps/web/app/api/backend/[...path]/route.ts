@@ -9,8 +9,8 @@
 // esta capa: lo pone `withOwner` en apps/api a partir de la sesion.
 //
 // Lista blanca de prefijos y metodos: el puente solo alcanza los verticales portados (pagos,
-// clientes, cajas-bancos, ventas, series y notas), no cualquier ruta del API. Un path inesperado
-// responde 404 sin salir del proceso.
+// clientes, cajas-bancos, ventas, series, notas y compras), no cualquier ruta del API. Un path
+// inesperado responde 404 sin salir del proceso.
 //
 // `PATCH` esta porque `PATCH /entities/:id` es la modificacion de cliente (T5c) y
 // `PATCH /settings` la configuracion general de cajas-bancos (C1). Sin el, el navegador recibia
@@ -54,6 +54,11 @@ const ALLOWED_PREFIXES = new Set([
   // detalle). La lectura lleva query string y este puente ya la reenvia tal cual (`search`), asi que
   // abrir el prefijo alcanza: no hay `PATCH` ni `DELETE` porque una nota emitida es inmutable (S7).
   "notes",
+  // T5 del slice 4: compras (`/compras`, `/compras/nuevo`, `/compras/[id]` y su edicion). El
+  // vertical expone `GET /purchases`, `GET /purchases/:id`, `POST /purchases` y
+  // `PATCH /purchases/:id`, o sea los mismos verbos que ya reenvia este puente: abrir el prefijo
+  // alcanza, y sin el el navegador recibiria 404 aunque la ruta exista en el API.
+  "purchases",
 ]);
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH"]);

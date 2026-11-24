@@ -141,12 +141,23 @@ export async function fillIncomePaymentForm(page: Page, input: IncomePaymentInpu
 	}
 }
 
-/** Envia el formulario y espera volver al listado (el alta redirige al listado de la direccion). */
-export async function submitPayment(page: Page, basePath = "/pagos/ingresos"): Promise<void> {
+/**
+ * Envia el formulario y espera volver al listado (el alta redirige al listado de la direccion).
+ *
+ * `basePath` y `heading` distinguen INGRESO de EGRESO: el formulario es el mismo, pero el alta de un
+ * cobro vuelve a `/pagos/ingresos` (titulo `Ingresos`) y la de un pago a proveedor a
+ * `/pagos/egresos` (titulo `Egresos`). Los defaults conservan el caso de ingresos, que es el que ya
+ * usaban los specs 04, 05 y 10.
+ */
+export async function submitPayment(
+	page: Page,
+	basePath = "/pagos/ingresos",
+	heading = "Ingresos",
+): Promise<void> {
 	await page.getByRole("button", { name: "Registrar", exact: true }).click();
 
 	await expect(page).toHaveURL(new RegExp(`${escapeRegExp(basePath)}$`));
-	await expect(page.getByRole("heading", { name: "Ingresos" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: heading })).toBeVisible();
 }
 
 /** Fila del listado que corresponde a una entidad (el nombre es unico por dueno desechable). */

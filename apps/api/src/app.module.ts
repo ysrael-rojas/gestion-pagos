@@ -5,14 +5,16 @@ import { ContractModule } from "./contract/contract.module";
 import { DatabaseModule } from "./db/db.module";
 import { EntitiesModule } from "./entities/entities.module";
 import { HealthModule } from "./health/health.module";
+import { NotesModule } from "./notes/notes.module";
 import { PaymentsModule } from "./payments/payments.module";
 import { SeriesModule } from "./series/series.module";
 import { VouchersModule } from "./vouchers/vouchers.module";
 
 /**
  * `DatabaseModule` es global: expone el handle de Drizzle (y el pool) a todos los modulos.
- * `AuthModule`, `PaymentsModule`, `EntitiesModule`, `CashModule`, `VouchersModule` y `SeriesModule`
- * tocan la base; `ContractModule` es el smoke del pipe de validacion y `HealthModule` no toca nada.
+ * `AuthModule`, `PaymentsModule`, `EntitiesModule`, `CashModule`, `VouchersModule`, `SeriesModule` y
+ * `NotesModule` tocan la base; `ContractModule` es el smoke del pipe de validacion y `HealthModule`
+ * no toca nada.
  *
  * `VouchersModule` va DESPUES de `PaymentsModule` a proposito: los dos publican rutas bajo
  * `/vouchers` (`GET /vouchers/open` es la cartera y `GET /vouchers/:id` el detalle de una venta) y
@@ -22,6 +24,13 @@ import { VouchersModule } from "./vouchers/vouchers.module";
  * `SeriesModule` publica `/series` y `/series/:id/delete`, que NO comparten prefijo con ningun otro
  * modulo, asi que su posicion no cambia el ruteo: va despues de `VouchersModule` porque es el otro
  * modulo del mismo vertical de ventas (la numeracion de esos comprobantes) y se lee en ese orden.
+ *
+ * `NotesModule` publica `/notes` y `/notes?voucherId=`, que tampoco comparten prefijo con otro modulo:
+ * el detalle de una venta sigue siendo `GET /vouchers/:id` de `VouchersModule`, y las notas de ese
+ * comprobante se leen en este modulo. Va ultimo del vertical de ventas por la misma razon que
+ * `SeriesModule` (se lee en el orden del ciclo de emision: comprobante, serie, nota), no porque su
+ * posicion afecte a nadie; lo pina `apps/api/test/notes.e2e.test.ts`, que comprueba que `GET
+ * /vouchers/open` y `GET /vouchers/:id` siguen resolviendo igual.
  */
 @Module({
 	imports: [
@@ -32,6 +41,7 @@ import { VouchersModule } from "./vouchers/vouchers.module";
 		CashModule,
 		VouchersModule,
 		SeriesModule,
+		NotesModule,
 		ContractModule,
 		HealthModule,
 	],

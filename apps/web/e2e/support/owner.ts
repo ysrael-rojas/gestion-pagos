@@ -1,9 +1,12 @@
 // Usuario desechable por spec y sus fixtures, con borrado en orden de FK.
 //
-// Reglas, todas heredadas de `apps/api/test/support/fixtures.ts`:
+// Reglas:
 //
-// 1. El usuario se crea por el camino real de alta (`POST /api/auth/sign-up/email` del handler de
-//    Better Auth que monta Nest), no insertando filas a mano. El id sale de la respuesta.
+// 1. El usuario se crea por SQL, que es el procedimiento de alta que documenta
+//    `docs/operacion/crear-usuario.md`: `auth.users` + `auth.account` con la contrasena hasheada por
+//    `hashPassword` de Better Auth. Desde L77 el API tiene `disableSignUp`, asi que
+//    `POST /api/auth/sign-up/email` ya no existe como via de alta —ni para el suite—. La ENTRADA
+//    sigue siendo la real: el formulario de `/login` manda al handler de Better Auth.
 // 2. La contrasena se genera en runtime (`randomUUID`): no hay ninguna credencial en un archivo
 //    del repo, y cada corrida usa una distinta.
 // 3. Las fixtures de dominio (entidad, cuenta de caja, cuenta bancaria, caja chica, metodo,
@@ -14,8 +17,8 @@
 //    `auth.session` y `auth.account` por cascada. El dueno demo (`seed-demo.sql`) no se toca
 //    nunca: todas las clausulas son `owner_id = <uuid del usuario desechable>`.
 import { randomUUID } from "node:crypto";
+import { hashPassword } from "better-auth/crypto";
 
-import { API_ORIGIN } from "./env";
 import { psqlLines, psqlValue, sqlText } from "./psql";
 
 /**
@@ -43,45 +46,31 @@ export interface Owner {
 	tag: string;
 }
 
-interface SignUpResponse {
-	user?: { id?: unknown };
-}
-
 /**
- * Alta real de un dueno desechable.
+ * Alta de un dueno desechable por SQL (L77: el API ya no acepta el alta publica).
  *
- * Better Auth exige cabecera `Origin` en los POST (proteccion CSRF) y sin ella responde
- * `403 Missing or null Origin`. Node's fetch no la manda, asi que el suite la pone explicita y
- * con el origen del API, que es su propio `baseURL` y por lo tanto un origen confiable. El
- * navegador la manda solo, y por eso el login de la UI ejercita de verdad
- * `BETTER_AUTH_TRUSTED_ORIGINS`.
+ * Inserta las dos filas que el alta escribia —`auth.users` y `auth.account` con `provider_id =
+ * 'credential'`— y devuelve la contrasena para que el spec entre por el formulario, que es lo que
+ * ejercita de verdad `BETTER_AUTH_TRUSTED_ORIGINS` y el handler HTTP del API.
+ *
+ * Ya no emite ninguna sesion, asi que el `delete from auth.session` que hacia el alta por endpoint
+ * desaparece: el dueno nace "con cuenta, sin sesiones", que es lo que el spec de cerrar sesion
+ * necesita comparar.
  */
-export async function signUpOwner(): Promise<Owner> {
+export async function createOwner(): Promise<Owner> {
+	const id = randomUUID();
 	const email = `e2e-${randomUUID()}@example.test`;
 	const password = randomUUID();
-	const response = await fetch(`${API_ORIGIN}/api/auth/sign-up/email`, {
-		method: "POST",
-		headers: { "content-type": "application/json", origin: API_ORIGIN },
-		body: JSON.stringify({ email, password, name: "E2E desechable" }),
-	});
+	const hashed = await hashPassword(password);
 
-	const body = await response.text();
-
-	if (!response.ok) {
-		throw new Error(`El alta del usuario desechable fallo (${response.status}): ${body}`);
-	}
-
-	const parsed = JSON.parse(body) as SignUpResponse;
-	const id = parsed.user?.id;
-
-	if (typeof id !== "string" || id.length === 0) {
-		throw new Error(`Better Auth no devolvio el id del usuario creado: ${body}`);
-	}
-
-	// El alta emite una sesion propia que el suite no usa (el login de todos los specs es por el
-	// formulario). Se borra aca, con el dueno en un estado conocido: "tiene cuenta, sin
-	// sesiones". Sin esto, el spec de cerrar sesion compara contra una sesion heredada del alta.
-	psqlLines(`delete from auth.session where user_id = ${sqlText(id)};\n`);
+	psqlLines(
+		`begin;
+insert into auth.users (id, name, email, email_verified)
+	values (${sqlText(id)}, 'E2E desechable', ${sqlText(email)}, true);
+insert into auth.account (id, account_id, provider_id, user_id, password, created_at, updated_at)
+	values (${sqlText(randomUUID())}, ${sqlText(id)}, 'credential', ${sqlText(id)}, ${sqlText(hashed)}, now(), now());
+commit;\n`,
+	);
 
 	return { id, email, password, tag: id.slice(0, 8) };
 }

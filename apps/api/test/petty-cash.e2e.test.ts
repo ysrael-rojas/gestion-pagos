@@ -25,7 +25,7 @@
 //   DATABASE_URL         la base sembrada.
 //   BETTER_AUTH_SECRET   firma de las cookies de sesion; si falta se genera uno efimero.
 //
-// Sesiones: salen de la API server-side de Better Auth (`signUpEmail`), igual que en
+// Sesiones: salen de la API server-side de Better Auth (`signInEmail`, con el dueno creado por SQL), igual que en
 // `cash-closes.e2e.test.ts`.
 //
 // FECHAS: fijas y pasadas (apertura `2026-03-01`, vales `2026-03-05`), no "hoy", para no depender
@@ -50,7 +50,7 @@ import { withOwner } from "../src/db/with-owner.ts";
 import type { ApiHarness } from "./support/harness.ts";
 import {
 	deleteOwnerFixtures,
-	signUpSecondOwner,
+	createSecondOwner,
 	type OwnerSession,
 } from "./support/fixtures.ts";
 import { loadApiHarness, removeApiHarnessBundle } from "./support/harness-loader.ts";
@@ -328,8 +328,8 @@ before(async () => {
 	harness = await module.startApi();
 	pool = harness.pool;
 
-	owner = await signUpSecondOwner(harness.auth);
-	intruder = await signUpSecondOwner(harness.auth);
+	owner = await createSecondOwner(harness.pool, harness.auth);
+	intruder = await createSecondOwner(harness.pool, harness.auth);
 
 	accounts = await seedPettyCash(pool, owner.ownerId, "caja-chica");
 	intruderAccounts = await seedPettyCash(pool, intruder.ownerId, "ajena");

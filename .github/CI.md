@@ -23,7 +23,7 @@ Tres jobs en paralelo, cada uno con su propio `postgres:18` de servicio (virgen)
 | 5 | migraciones (la API las necesita) | `pnpm --filter @gestion/db db:verify` |
 | 6 | seeds en el orden de S20 | `pnpm --filter @gestion/db db:seed` |
 | 7 | tipos de los 4 paquetes | `pnpm typecheck` (turbo) |
-| 8 | tests | `pnpm test` (turbo; `@gestion/api` 130, con `--test-concurrency=1` porque sus e2e comparten el dueño demo y su credencial; `@gestion/web` 106) |
+| 8 | tests | `pnpm test` (turbo; `@gestion/api` 135, con `--test-concurrency=1` porque sus e2e comparten el dueño demo y su credencial; `@gestion/web` 106) |
 | 9 | build de todos los paquetes | `pnpm build` (turbo) |
 | 10 | **build frio de la web** | `rm -rf apps/web/.next && pnpm --filter @gestion/web build` |
 
@@ -291,8 +291,12 @@ build viejo es peor que no tener e2e.
 
 ### Determinismo
 
-- **Un usuario por spec**, creado por el camino real de alta (`POST /api/auth/sign-up/email`). La
-  contrasena se genera en runtime: no hay credencial en ningun archivo del repo.
+- **Un usuario por spec**, creado por SQL con `createOwner()` (`auth.users` + `auth.account` con
+  `provider_id = 'credential'` y el hash de `hashPassword`, por el mismo transporte de `psql` que
+  las fixtures) y entrada por el formulario de `/login`, que es el camino real. El alta publica
+  `POST /api/auth/sign-up/email` esta cerrada en el API (`disableSignUp`, L81): responde `400` y no
+  escribe ninguna fila. La contrasena se genera en runtime: no hay credencial en ningun archivo del
+  repo.
 - **Fixtures propias** (cuenta de caja, entidad, comprobante) sembradas por SQL como dueno de las
   tablas, igual que los seeds, siempre con `owner_id` explicito. `apps/api` no expone escritura de
   cuentas ni de comprobantes, asi que no hay otra via. El dueno demo nunca se toca: todas las

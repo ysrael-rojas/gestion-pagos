@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import type { Pool } from "pg";
 import type { ApiHarness } from "./support/harness.ts";
-import { deleteOwnerFixtures, signUpSecondOwner, type OwnerSession } from "./support/fixtures.ts";
+import { deleteOwnerFixtures, createSecondOwner, type OwnerSession } from "./support/fixtures.ts";
 import { loadApiHarness, removeApiHarnessBundle } from "./support/harness-loader.ts";
 
 /** Rango del caso principal: los dos bordes son INCLUSIVE. */
@@ -183,8 +183,8 @@ before(async () => {
 	harness = await module.startApi();
 	pool = harness.pool;
 
-	owner = await signUpSecondOwner(harness.auth);
-	intruder = await signUpSecondOwner(harness.auth);
+	owner = await createSecondOwner(harness.pool, harness.auth);
+	intruder = await createSecondOwner(harness.pool, harness.auth);
 
 	ids = await seedCatalog(pool, owner.ownerId, "flujo");
 	intruderIds = await seedCatalog(pool, intruder.ownerId, "ajeno");

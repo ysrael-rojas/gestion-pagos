@@ -47,7 +47,7 @@ Drizzle y fija `app.user_id` con `set_config(..., true)` antes del callback.
 
 - `auth.session`, `auth.account` y `auth.verification` **no existen** en las migraciones
   portadas (las creaba Supabase). El mapeo del adapter esta declarado en
-  `src/db/schema/auth.ts`; sin esa migracion en `packages/db`, sign-in/sign-up falla con
+  `src/db/schema/auth.ts`; sin esa migracion en `packages/db`, sign-in falla con
   `relation "auth.session" does not exist`.
 - Las politicas RLS son `TO authenticated`, pero la base no tiene grants de tabla para ese rol
   ni las tablas tienen `FORCE ROW LEVEL SECURITY`: conectado como dueno (`dev_user`), RLS no se

@@ -11,7 +11,7 @@
 //   BETTER_AUTH_SECRET   firma de las cookies de sesion; si falta se genera uno efimero.
 //
 // Sesiones: igual que `payments.e2e.test.ts`, las dos salen de la API server-side de Better Auth
-// (`signInEmail` / `signUpEmail`), que es el mismo camino que ejecuta el handler HTTP.
+// (`signInEmail`, con el dueno creado por SQL), que es el mismo camino que ejecuta el handler HTTP.
 //
 // El segundo dueno se da de alta SIN catalogos a proposito: es lo que un usuario nuevo ve antes
 // de que la app siembre nada, y es el caso que ejercita `POST /catalogs/ensure`.
@@ -27,7 +27,7 @@ import {
 	grantDemoCredential,
 	revokeDemoCredential,
 	signIn,
-	signUpSecondOwner,
+	createSecondOwner,
 	TEST_PASSWORD,
 	type OwnerSession,
 } from "./support/fixtures.ts";
@@ -140,8 +140,8 @@ before(async () => {
 	const demoEmail = await grantDemoCredential(pool, demoOwnerId);
 	demo = await signIn(harness.auth, demoEmail, TEST_PASSWORD);
 
-	// El segundo dueno arranca sin catalogos: `signUpEmail` no siembra nada.
-	second = await signUpSecondOwner(harness.auth);
+	// El segundo dueno arranca sin catalogos: el alta por SQL no siembra nada.
+	second = await createSecondOwner(harness.pool, harness.auth);
 });
 
 after(async () => {

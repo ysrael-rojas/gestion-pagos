@@ -9,7 +9,7 @@
 //   DATABASE_URL         la base sembrada.
 //   BETTER_AUTH_SECRET   firma de las cookies de sesion; si falta se genera uno efimero.
 //
-// Sesiones: las dos salen de la API server-side de Better Auth (`signInEmail` / `signUpEmail`),
+// Sesiones: las dos salen de la API server-side de Better Auth (`signInEmail`, con el dueno creado por SQL),
 // el mismo camino que ejecuta el handler HTTP. El dueno demo aporta la sesion intrusa: con ella
 // se intenta modificar y borrar la fila del otro dueno (aislamiento), y al final no se borra
 // nada suyo -- solo su credencial de prueba, que revoca.
@@ -26,7 +26,7 @@ import {
 	grantDemoCredential,
 	revokeDemoCredential,
 	signIn,
-	signUpSecondOwner,
+	createSecondOwner,
 	TEST_PASSWORD,
 	type OwnerSession,
 } from "./support/fixtures.ts";
@@ -42,7 +42,7 @@ const SOME_UUID = "11111111-1111-4111-8111-111111111111";
 
 let harness: ApiHarness;
 let pool: Pool;
-/** Dueno de las escrituras de este test (`signUpEmail`, sin filas de dominio previas). */
+/** Dueno de las escrituras de este test (creado por SQL, sin filas de dominio previas). */
 let owner: OwnerSession;
 /** Dueno demo sembrado: aporta la sesion intrusa para probar el aislamiento. */
 let intruder: OwnerSession;
@@ -155,7 +155,7 @@ before(async () => {
 	harness = await module.startApi();
 	pool = harness.pool;
 
-	owner = await signUpSecondOwner(harness.auth);
+	owner = await createSecondOwner(harness.pool, harness.auth);
 
 	const intruderOwnerId = await findSeededEntityOwnerId();
 	const intruderEmail = await grantDemoCredential(pool, intruderOwnerId);

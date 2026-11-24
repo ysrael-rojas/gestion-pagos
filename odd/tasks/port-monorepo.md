@@ -585,6 +585,26 @@ sobre el anterior (sin reescribir historia: son punteros a commits que ya existe
   real (puerto 3101): arranca y responde `/health`, reinicia al guardar, **no** reinicia con un error
   de sintaxis mientras el servidor sigue sirviendo, y se recupera al arreglar el archivo. Esa última
   mitad es la que importa: un error de tipos no sirve como prueba, porque esbuild no typechequea.
+- L81 (**saldada L77**, sin dependencias nuevas): `apps/api/src/auth/auth.ts` declara
+  `emailAndPassword: { enabled: true, disableSignUp: true }`, así que "solo el dueño crea cuentas"
+  dejó de ser una restricción de la UI. `POST /api/auth/sign-up/email` responde
+  `400 {"message":"Email and password sign up is not enabled","code":"EMAIL_PASSWORD_SIGN_UP_DISABLED"}`
+  y no escribe ninguna fila en `auth.users`; la bandera se evalúa en `sign-up.mjs:145-148` de
+  `better-auth`, antes de llegar al adapter. Los **21 call sites** de los tests del API pasaron de
+  `signUpSecondOwner` a `createSecondOwner`, que inserta `auth.users` + `auth.account`
+  (`provider_id = 'credential'`, hash de `hashPassword`) y después entra por `signInEmail`; los
+  **2 specs** del e2e que daban de alta un dueño (`06-domain-error`, `07-sign-out`) usan el
+  `createOwner()` nuevo, que son las mismas dos filas por el transporte `psql` y ya no emite sesión.
+  La entrada sigue siendo la de siempre, `POST /api/auth/sign-in/email`. Suite del API: **135/135**
+  verde, con `apps/api/test/auth-sign-up.test.ts` fijando las dos mitades del contrato (el rechazo
+  con ese código y ese mensaje, y que un alta rechazada no deje usuario a medias). Verificación
+  independiente A/B/C/D: se cumple el comportamiento documentado; quitando la bandera el test se
+  pone **rojo** y el HTTP vuelve a `200` con filas escritas. Límites honestos: **el e2e de navegador
+  no se corrió** (el entorno de verificación no tiene navegadores de Playwright instalados), y
+  `createOwner()` ahora necesita `INSERT` sobre `auth.users`/`auth.account` para el rol de base del
+  e2e, donde antes solo borraba — en el CI ese rol es `ci`, el mismo que aplica las migraciones, así
+  que ya es dueño de las tablas; en local el transporte `docker` corre con el `POSTGRES_USER` del
+  contenedor.
 
 ## Estado para retomar (handoff)
 
@@ -598,8 +618,9 @@ después cajas-bancos (arrastra `ensureDefaultSettings`, ver L67), y al final ve
 los más entrelazados porque arrastran comprobantes y saldos.
 
 **Deudas abiertas, con su referencia.**
-- L77 — el API acepta `POST /api/auth/sign-up/email` de cualquiera: "solo el dueño crea cuentas" es
-  restricción de UI. Cerrarlo pide fixtures SQL en los tests en vez del endpoint real.
+- ~~L77~~ — cerrada en L81: el API rechaza `POST /api/auth/sign-up/email` con `400`
+  `EMAIL_PASSWORD_SIGN_UP_DISABLED` (`disableSignUp`), así que crear usuarios es el SQL de
+  `docs/operacion/crear-usuario.md`; los tests del API y el e2e dan de alta por fixtures SQL.
 - ~~L78~~ — cerrada en L80: `pnpm dev` levanta los dos procesos y el API se reinicia al guardar.
 - L67 — `ensureDefaultSettings()` (cajas-bancos) sin portar; sin cubrir: pestañas de filtro, diálogo de
   asignación, impresión del recibo, concurrencia.

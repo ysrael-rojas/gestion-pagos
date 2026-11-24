@@ -12,7 +12,7 @@
 //   BETTER_AUTH_SECRET   firma de las cookies de sesion; si falta se genera uno efimero.
 //
 // Sesiones: igual que `cash-accounts.e2e.test.ts`, salen de la API server-side de Better Auth
-// (`signUpEmail`), que es el mismo camino que ejecuta el handler HTTP.
+// (`signInEmail`, con el dueno creado por SQL), que es el mismo camino que ejecuta el handler HTTP.
 //
 // FIXTURES: las cuentas, los recibos y la transferencia se siembran con SQL directo como
 // `dev_user` (owner de las tablas, igual que los seeds), que es lo que la tarea permite hacer
@@ -35,7 +35,7 @@ import type { Pool } from "pg";
 import type { ApiHarness } from "./support/harness.ts";
 import {
 	deleteOwnerFixtures,
-	signUpSecondOwner,
+	createSecondOwner,
 	type OwnerSession,
 } from "./support/fixtures.ts";
 import { loadApiHarness, removeApiHarnessBundle } from "./support/harness-loader.ts";
@@ -305,8 +305,8 @@ before(async () => {
 	harness = await module.startApi();
 	pool = harness.pool;
 
-	owner = await signUpSecondOwner(harness.auth);
-	intruder = await signUpSecondOwner(harness.auth);
+	owner = await createSecondOwner(harness.pool, harness.auth);
+	intruder = await createSecondOwner(harness.pool, harness.auth);
 
 	fixture = await seedPositionsFixture(pool, owner.ownerId, owner.ownerId.slice(0, 8));
 });

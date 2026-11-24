@@ -5,12 +5,12 @@
 // orden de ejecucion no puede cambiar el resultado de ninguno.
 import { test as base, expect } from "@playwright/test";
 
-import { deleteOwnerFixtures, signUpOwner, type Owner } from "./owner";
+import { deleteOwnerFixtures, createOwner, type Owner } from "./owner";
 
 export const test = base.extend<{ owner: Owner }>({
 	// eslint-disable-next-line no-empty-pattern -- Playwright exige el primer parametro de fixtures.
 	owner: async ({}, use) => {
-		const owner = await signUpOwner();
+		const owner = await createOwner();
 
 		try {
 			await use(owner);

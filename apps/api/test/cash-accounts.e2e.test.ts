@@ -11,7 +11,7 @@
 //   BETTER_AUTH_SECRET   firma de las cookies de sesion; si falta se genera uno efimero.
 //
 // Sesiones: igual que `catalogs.e2e.test.ts`, salen de la API server-side de Better Auth
-// (`signUpEmail`), que es el mismo camino que ejecuta el handler HTTP.
+// (`signInEmail`, con el dueno creado por SQL), que es el mismo camino que ejecuta el handler HTTP.
 //
 // Los dos duenos son nuevos y no tienen cuentas: asi `GET /cash-accounts` arranca vacio y cada
 // asercion de listado es del test, no de la demo. Los tests comparten esos duenos y corren en el
@@ -28,7 +28,7 @@ import type { Pool } from "pg";
 import type { ApiHarness } from "./support/harness.ts";
 import {
 	deleteOwnerFixtures,
-	signUpSecondOwner,
+	createSecondOwner,
 	type OwnerSession,
 } from "./support/fixtures.ts";
 import { loadApiHarness, removeApiHarnessBundle } from "./support/harness-loader.ts";
@@ -158,9 +158,9 @@ before(async () => {
 	harness = await module.startApi();
 	pool = harness.pool;
 
-	// Los dos duenos arrancan sin cuentas: `signUpEmail` no siembra nada.
-	owner = await signUpSecondOwner(harness.auth);
-	intruder = await signUpSecondOwner(harness.auth);
+	// Los dos duenos arrancan sin cuentas: el alta por SQL no siembra nada.
+	owner = await createSecondOwner(harness.pool, harness.auth);
+	intruder = await createSecondOwner(harness.pool, harness.auth);
 });
 
 after(async () => {

@@ -47,8 +47,9 @@ en el build). La lista completa, con qué tarea de Turborepo las ve, está en
 [`.github/CI.md`](.github/CI.md).
 
 **Entrar**: una base recién sembrada no tiene ningún usuario con contraseña — el usuario demo
-existe para dar `owner_id` a los seeds, a propósito. Cómo crear el tuyo (endpoint, o SQL con el
-hash correcto) y cómo borrarlo: [`docs/operacion/crear-usuario.md`](docs/operacion/crear-usuario.md).
+existe para dar `owner_id` a los seeds, a propósito. Cómo crear el tuyo (SQL con el hash correcto;
+`POST /api/auth/sign-up/email` está cerrado en el API y responde `400`) y cómo borrarlo:
+[`docs/operacion/crear-usuario.md`](docs/operacion/crear-usuario.md).
 
 `pnpm --filter @gestion/api dev` compila y **arranca** el servidor, y lo reinicia en cada cambio de
 `src/` (un build con errores no lo tumba: sigue sirviendo la última versión buena). `pnpm dev` de la

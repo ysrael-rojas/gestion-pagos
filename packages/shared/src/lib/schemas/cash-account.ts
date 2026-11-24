@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// Extension explicita: este schema lo importa un test unitario que corre con el runner de Node
+// (`apps/web/lib/cajas-bancos/cuenta-fecha-apertura.test.ts`), y el ESM de Node no resuelve imports
+// relativos sin extension. Los demas schemas de esta carpeta siguen con `"../utils"` porque nadie los
+// carga fuera de un bundler.
+import { getTodayLocalDate } from "../utils.ts";
+
 export const CASH_ACCOUNT_TYPES = ["CASH_BOX", "BANK_ACCOUNT"] as const;
 export type CashAccountType = (typeof CASH_ACCOUNT_TYPES)[number];
 
@@ -56,7 +62,9 @@ const baseCashAccountSchema = z.object({
   openingBalanceDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida (YYYY-MM-DD)")
-    .default(() => new Date().toISOString().slice(0, 10)),
+    // Fecha de NEGOCIO: `toISOString()` es UTC, asi que de 19:00 a 24:00 en Lima la cuenta nacia con
+    // la fecha de manana. `getTodayLocalDate()` lee la misma zona que los seeds.
+    .default(() => getTodayLocalDate()),
   notes: z.string().max(500, "Las notas no pueden superar 500 caracteres").optional(),
   isActive: z.boolean().default(true),
   // Caja chica y fondo de cambio (solo cajas).
@@ -111,7 +119,7 @@ export const cashAccountFormSchema = z
     openingBalanceDate: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida (YYYY-MM-DD)")
-      .default(() => new Date().toISOString().slice(0, 10)),
+      .default(() => getTodayLocalDate()),
     notes: z.string().optional(),
     isActive: z.boolean().default(true),
     // Caja chica y fondo de cambio: solo tienen sentido en una caja.

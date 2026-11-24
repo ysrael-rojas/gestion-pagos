@@ -3,10 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2022"],
     "noEmit": true,
-    // Los tests de `packages/shared` corren con el runner de Node (desde
-    // `apps/web`, que no tiene runner propio) y el runner no resuelve imports
-    // relativos sin extensión: los schemas importan con `.ts` (ver
-    // `odd/tasks/port-vertical-ventas.md`, T1).
+    // Mismo criterio que apps/web y apps/api: los imports que carga el runner de Node llevan la
+    // extension `.ts` explicita, porque el ESM de Node no resuelve imports relativos sin extension.
     "allowImportingTsExtensions": true
   },
   "include": ["src/**/*.ts"]

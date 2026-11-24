@@ -85,12 +85,12 @@ verde (la venta no cambia).
 
 | ID | Spec | Ruta | Estado |
 | --- | --- | --- | --- |
-| T1 | S3, S4, S5, S8 | worker: migración con `crear_compra`/`editar_compra` (número tipado) + tests SQL | pendiente |
-| T2 | S2, S9 | inline: contrato de escritura de compra en `packages/shared` (número **requerido**) + tests | pendiente |
-| T3 | S6, S8, S10 | worker: módulo `purchases` en `apps/api` (listado, detalle con saldo, alta, edición) + e2e | pendiente |
-| T4 | S7, S10 | worker: `apps/web/lib/compras`, `VOUCHER_SOURCES.COMPRA` y el listado de compras | pendiente |
-| T5 | S11, S12 | worker: rutas `/compras/**`, navbar, allowlist del BFF y `specs/13-compras` | pendiente |
-| T6 | S12 | parent: contadores de `.github/CI.md`, log y cierre | pendiente |
+| T1 | S3, S4, S5, S8 | worker: migración con `crear_compra`/`editar_compra` (número tipado) + tests SQL | hecho (L4) |
+| T2 | S2, S9 | inline: contrato de escritura de compra en `packages/shared` (número **requerido**) + tests | hecho (L3) |
+| T3 | S6, S8, S10 | worker: módulo `purchases` en `apps/api` (listado, detalle con saldo, alta, edición) + e2e | hecho (L5) |
+| T4 | S7, S10 | worker: `apps/web/lib/compras`, `VOUCHER_SOURCES.COMPRA` y el listado de compras | hecho (L6) |
+| T5 | S11, S12 | worker: rutas `/compras/**`, navbar, allowlist del BFF y `specs/13-compras` | hecho (L6) |
+| T6 | S12 | parent: contadores de `.github/CI.md`, log y cierre | hecho (L7) |
 
 ## Log
 
@@ -125,3 +125,30 @@ el caso contrario porque ahí el número lo publicó una serie nuestra.
 número existe como VENTA y como COMPRA) y el candado por pagos. La suite del API quedó en **236/236**
 en la corrida del worker; después ajusté la guarda de tipo (L3g) y volví a medir: 12/12 en el archivo,
 `dump-schema --check` en sincronía (1165 líneas) y `db:check-rls` 47/47.
+
+**L5** (evidencia, T3 cerrada): módulo `purchases` con las cuatro rutas, escritura por `withOwner`
+sobre las RPC de compra y los montos con `saleAmounts`. La posición en `AppModule` **no** es sensible
+al orden: `/purchases` no comparte prefijo con nadie, a diferencia de `/vouchers`. El listado filtra
+por kind en la query, no en el llamador, porque `comprobante` guarda los dos lados del mostrador.
+API **260/260** y `typecheck` 4/4.
+
+**L6** (evidencia, T4 y T5 cerradas): `apps/web/lib/compras/**` (15 casos) más la
+**parametrización** de la capa compartida que estaba escrita con nombres de venta — `VoucherTableRow`,
+`voucherListCopy(kind)`, `paymentEntryHref(row, kind)` y `toVoucherRequestBody(values, kind = "VENTA")`,
+con los nombres viejos conservados como alias para no romper consumidores. Las cuatro rutas
+`/compras/**`, `Compras` promovida en el navbar, prefijo `purchases` en el puente y
+`specs/13-compras` (4 casos). La compra **no** toca series: el formulario pide `useVoucherSeries(false)`
+y el e2e verifica que un dueño sin ninguna serie puede registrar una compra. Web **228/228**,
+`typecheck` 0, build con las cuatro rutas dinámicas, y `pnpm e2e` **41/41 en 13 specs** (12m) con los
+conteos del teardown idénticos al baseline.
+
+**L7** (evidencia, T6 y slice cerrados): contadores de `.github/CI.md` (API 224→**260**, web
+210→**228**, e2e 37 en 12 specs→**41 en 13 specs**) y fila `13-compras` en el catálogo.
+
+Queda afuera del vertical, anotado: **notas recibidas sobre una compra** (hoy `crear_nota` solo
+deja referenciar comprobantes de venta y habilitarlas invierte el sentido del tope), **retención del
+IGV** al proveedor (la skill pide confirmarla con el contador, no implementarla "por si acaso"),
+liquidación de compra, guías y CPE. Deuda de limpieza: `packages/shared/src/lib/schemas/{sale,purchase}.ts`
+y `shared/components/compras/types.ts` siguen sin consumidores. Publicar la rama es decisión del
+humano: los commits están en `feat/vertical-compras`, colgada de `chore/drizzle-comprobante-unico`
+(PR #27).

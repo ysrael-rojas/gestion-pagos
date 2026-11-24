@@ -2,7 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022"],
-    "noEmit": true
+    "noEmit": true,
+    // Mismo criterio que apps/web y apps/api: los imports que carga el runner de Node llevan la
+    // extension `.ts` explicita, porque el ESM de Node no resuelve imports relativos sin extension.
+    "allowImportingTsExtensions": true
   },
   "include": ["src/**/*.ts"]
 }

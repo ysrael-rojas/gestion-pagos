@@ -8,12 +8,12 @@
 //   DATABASE_URL         la base sembrada (45 pagos, 41 comprobantes de la demo).
 //   BETTER_AUTH_SECRET   firma de las cookies de sesion; si falta se genera uno efimero.
 //
-// Sesiones: las dos salen de `auth.api.signInEmail` / `auth.api.signUpEmail`, el mismo camino
-// que ejecuta el handler HTTP de Better Auth. El dueno demo (que no tiene credencial porque el
-// seed solo lo crea en `auth.users`) recibe una fila `auth.account` temporal con la contrasena
-// hasheada por `hashPassword` de Better Auth; el teardown borra la cuenta y las sesiones.
+// Sesiones: las dos salen de `auth.api.signInEmail`, el mismo camino que ejecuta el handler HTTP de
+// Better Auth. El dueno demo (que no tiene credencial porque el seed solo lo crea en `auth.users`)
+// recibe una fila `auth.account` temporal con la contrasena hasheada por `hashPassword` de Better
+// Auth; el teardown borra la cuenta y las sesiones.
 //
-// Fixtures: el segundo dueno se da de alta con `signUpEmail` y sus filas de dominio se siembran
+// Fixtures: el segundo dueno se crea por SQL (L77) y sus filas de dominio se siembran
 // con SQL directo (igual que los seeds). Como las filas tienen que ser visibles desde otra
 // conexion (el request HTTP corre en su propia transaccion), no pueden vivir en una transaccion
 // abierta: se borran en el teardown en orden de FK (`deleteOwnerFixtures`). El unico caso
@@ -39,7 +39,7 @@ import {
 	revokeDemoCredential,
 	seedSecondOwnerDomain,
 	signIn,
-	signUpSecondOwner,
+	createSecondOwner,
 	TEST_PASSWORD,
 } from "./support/fixtures.ts";
 import { loadApiHarness, removeApiHarnessBundle } from "./support/harness-loader.ts";
@@ -116,7 +116,7 @@ before(async () => {
 	demo = await signIn(harness.auth, demoEmail, TEST_PASSWORD);
 	demoIds = await pickDemoIds(pool, demoOwnerId);
 
-	const secondSession = await signUpSecondOwner(harness.auth);
+	const secondSession = await createSecondOwner(harness.pool, harness.auth);
 	const domain = await seedSecondOwnerDomain(pool, secondSession.ownerId);
 	const assignedPaymentId = await insertPayment(pool, {
 		ownerId: secondSession.ownerId,

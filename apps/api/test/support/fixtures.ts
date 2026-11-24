@@ -1,8 +1,8 @@
 // Fixtures del e2e de pagos.
 //
 // Regla de identidad: NINGUNA sesion se inventa. Las dos sesiones salen de la API server-side
-// de Better Auth (`auth.api.signInEmail` / `auth.api.signUpEmail`), que es exactamente lo que
-// ejecuta el handler HTTP de `/api/auth/*`. El GUC `app.user_id` lo sigue fijando `withOwner`
+// de Better Auth (`auth.api.signInEmail`), que es exactamente lo que ejecuta el handler HTTP de
+// `/api/auth/*`. El GUC `app.user_id` lo sigue fijando `withOwner`
 // a partir de la sesion resuelta por el API; el test no lo toca en la ruta de dominio.
 //
 // El dueno demo (`seed-demo.sql`) no tiene credencial: solo existe en `auth.users`. Para poder
@@ -10,9 +10,14 @@
 // `hashPassword` de Better Auth (su propio formato scrypt), y se borra en el teardown. Nada de
 // esto bypassea `withOwner`: la sesion se valida contra `auth.session` como en produccion.
 //
-// El segundo dueno se crea con `signUpEmail`, es decir por el camino real de alta. Sus filas de
-// dominio se siembran con SQL directo como `dev_user` (owner de las tablas), igual que los
-// seeds; el teardown las borra en orden de FK y termina borrando su `auth.users`, que arrastra
+// El segundo dueno se crea por SQL, que es el procedimiento de alta que documenta
+// `docs/operacion/crear-usuario.md`: `auth.users` + `auth.account` con la contrasena hasheada por
+// `hashPassword` (el formato scrypt de Better Auth). Desde L77 el API tiene `disableSignUp`, asi que
+// `signUpEmail` ya no es una via disponible —ni para los tests—; la ENTRADA sigue siendo la real:
+// `signInEmail`, igual que el handler HTTP de `/api/auth/*`.
+//
+// Sus filas de dominio se siembran con SQL directo como `dev_user` (owner de las tablas), igual que
+// los seeds; el teardown las borra en orden de FK y termina borrando su `auth.users`, que arrastra
 // sesiones y cuentas por cascada.
 import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
@@ -187,21 +192,30 @@ export async function findSeededOwnerId(pool: Pool): Promise<string> {
 	return ownerId;
 }
 
-/** Alta del segundo dueno por el camino real (`signUpEmail`), con su sesion. */
-export async function signUpSecondOwner(auth: Auth): Promise<OwnerSession> {
+/**
+ * Alta del segundo dueno por SQL (L77: el API ya no acepta `signUpEmail`), con su sesion real.
+ *
+ * Se insertan las dos filas que el alta escribia —`auth.users` y `auth.account` con `provider_id =
+ * 'credential'`— y despues se ENTRA por `signInEmail`, que es el camino que sigue abierto y el que
+ * ejercita el handler HTTP. La contrasena sale de `TEST_PASSWORD` y el hash de `hashPassword`, el
+ * mismo formato que usa `grantDemoCredential`.
+ */
+export async function createSecondOwner(pool: Pool, auth: Auth): Promise<OwnerSession> {
 	const email = `e2e-pagos-${randomUUID()}@example.test`;
+	const ownerId = randomUUID();
 
-	const { headers, response } = await auth.api.signUpEmail({
-		body: { email, password: TEST_PASSWORD, name: "E2E segundo dueno" },
-		returnHeaders: true,
-	});
+	await pool.query(
+		`insert into auth.users (id, name, email, email_verified) values ($1, $2, $3, true)`,
+		[ownerId, "E2E segundo dueno", email],
+	);
 
-	return {
-		ownerId: response.user.id,
-		email,
-		cookie: sessionCookieFrom(headers),
-		sessionTokens: response.token ? [response.token] : [],
-	};
+	await pool.query(
+		`insert into auth.account (id, account_id, provider_id, user_id, password, created_at, updated_at)
+		 values ($1, $2, 'credential', $3, $4, now(), now())`,
+		[randomUUID(), ownerId, ownerId, await hashPassword(TEST_PASSWORD)],
+	);
+
+	return signIn(auth, email, TEST_PASSWORD);
 }
 
 /**

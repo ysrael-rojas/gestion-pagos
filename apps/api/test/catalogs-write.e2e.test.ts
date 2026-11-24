@@ -23,7 +23,7 @@
 //   DATABASE_URL         la base sembrada.
 //   BETTER_AUTH_SECRET   firma de las cookies de sesion; si falta se genera uno efimero.
 //
-// Sesiones: dos duenos nuevos por `signUpEmail` (el camino real de alta), igual que
+// Sesiones: dos duenos nuevos por SQL y `signInEmail`, igual que
 // `catalogs.e2e.test.ts`. El teardown los borra con `deleteOwnerFixtures`, que ya conoce
 // `payment_method` y `cash_receipt_category`.
 import assert from "node:assert/strict";
@@ -31,7 +31,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import type { Pool } from "pg";
 import type { ApiHarness } from "./support/harness.ts";
-import { deleteOwnerFixtures, signUpSecondOwner, type OwnerSession } from "./support/fixtures.ts";
+import { deleteOwnerFixtures, createSecondOwner, type OwnerSession } from "./support/fixtures.ts";
 import { loadApiHarness, removeApiHarnessBundle } from "./support/harness-loader.ts";
 
 /** Las cuatro rutas nuevas con una entrada valida, para el barrido de 401. */
@@ -132,8 +132,8 @@ before(async () => {
 	harness = await module.startApi();
 	pool = harness.pool;
 
-	owner = await signUpSecondOwner(harness.auth);
-	intruder = await signUpSecondOwner(harness.auth);
+	owner = await createSecondOwner(harness.pool, harness.auth);
+	intruder = await createSecondOwner(harness.pool, harness.auth);
 });
 
 after(async () => {

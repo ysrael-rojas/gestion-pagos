@@ -8,7 +8,7 @@ import { signInThroughForm } from "../support/ui";
 // /login en las rutas protegidas) y la sesion deja de existir en la base. Solo la primera seria
 // compatible con un boton que borra la cookie y deja el token vivo en el servidor.
 //
-// El dueno arranca sin sesiones (`signUpOwner` borra la que emite el alta), asi que "cero
+// El dueno arranca sin sesiones (`createOwner` lo crea por SQL, sin emitir ninguna), asi que "cero
 // sesiones" es una afirmacion sobre ESTE login y no sobre restos de la fixture.
 test("cerrar sesion revoca la sesion y las rutas protegidas vuelven al login", async ({
 	page,

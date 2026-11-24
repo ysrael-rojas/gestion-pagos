@@ -1,4 +1,4 @@
-import { deleteOwnerFixtures, provisionFixtures, provisionForeignCashAccount, signUpOwner } from "../support/owner";
+import { deleteOwnerFixtures, provisionFixtures, provisionForeignCashAccount, createOwner } from "../support/owner";
 import { expect, test } from "../support/test";
 import {
 	chooseOption,
@@ -23,7 +23,7 @@ test("una cuenta de caja ajena muestra el mensaje de dominio y no crea el pago",
 	owner,
 }) => {
 	const fixtures = provisionFixtures(owner, { cashAccount: true });
-	const intruder = await signUpOwner();
+	const intruder = await createOwner();
 
 	try {
 		const foreign = provisionForeignCashAccount(intruder);

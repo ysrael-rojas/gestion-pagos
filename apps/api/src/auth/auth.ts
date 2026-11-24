@@ -43,7 +43,14 @@ export function createAuth(db: Database) {
 		// Email + contrasena: es el unico metodo que el monorepo usa hoy (Supabase Auth no se
 		// porta, S4). Sin esto Better Auth responde `EMAIL_PASSWORD_DISABLED` y no hay forma
 		// de iniciar sesion, ni desde la UI ni desde un test.
-		emailAndPassword: { enabled: true },
+		//
+		// `disableSignUp`: la app es de una sola empresa y solo el dueno crea cuentas. Sin esta
+		// bandera el alta era una restriccion de la UI, no del servidor: `POST
+		// /api/auth/sign-up/email` creaba un usuario a cualquiera que alcanzara el puerto del API
+		// (deuda L77). Crear usuarios es ahora el procedimiento SQL de
+		// `docs/operacion/crear-usuario.md`, y los tests crean los suyos por la misma via y despues
+		// inician sesion por `signInEmail`, que sigue siendo el camino real de entrada.
+		emailAndPassword: { enabled: true, disableSignUp: true },
 	});
 }
 

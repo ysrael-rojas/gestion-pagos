@@ -82,7 +82,8 @@ cubierto es [`.github/CI.md`](.github/CI.md)**; no la dupliques acá.
   qué variable vive dónde, y el flujo diario de cambio de esquema.
 - [`docs/operacion/crear-usuario.md`](docs/operacion/crear-usuario.md) — alta, reset y borrado de usuarios.
 - [`.agents/skills/`](.agents/skills) — skills de dominio: `facturacion-sunat-mype`,
-  `consultor-pagos-cobranzas`, `caja-bancos-mype`.
+  `consultor-pagos-cobranzas`, `caja-bancos-mype`, y las de `better-auth` (fijadas en
+  `skills-lock.json`). Cuándo leer cada una está en [`.agents/skills/README.md`](.agents/skills/README.md).
 
 ## Lo que todavía no existe
 

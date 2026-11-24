@@ -114,4 +114,14 @@ la retención no se modela; (d) `is_supplier` queda como filtro de pantalla, no 
 comprobantes de venta, y habilitarlas invierte el sentido del tope (una NC recibida reduce lo que se
 debe), así que es su propio slice; (f) el contrato es `voucherFormSchema` + `supplierId` mapeado a
 `entityId`; `purchase.ts` y `shared/components/compras/types.ts` quedan sin consumidores y se anotan
-como deuda de limpieza, no se borran acá.
+como deuda de limpieza, no se borran acá; (g) el **tipo** de una compra también es corregible, por
+la misma razón que el número: una `FACTURA` transcripta como `BOLETA` es un error de tipeo sobre un
+documento ajeno, no un cambio de especie, y el candado por pagos congela igual los dos. La venta es
+el caso contrario porque ahí el número lo publicó una serie nuestra.
+
+**L4** (evidencia, T1 cerrada): migración `20261128090000_compras_rpcs.sql` con `crear_compra` y
+`editar_compra` (calco de las de venta, con `p_voucher_number` en la firma y sin bloque de serie).
+12 casos SQL en `apps/api/test/compras-rpc.e2e.test.ts`, entre ellos el que justifica S2 (el mismo
+número existe como VENTA y como COMPRA) y el candado por pagos. La suite del API quedó en **236/236**
+en la corrida del worker; después ajusté la guarda de tipo (L3g) y volví a medir: 12/12 en el archivo,
+`dump-schema --check` en sincronía (1165 líneas) y `db:check-rls` 47/47.

@@ -9,8 +9,8 @@
 // esta capa: lo pone `withOwner` en apps/api a partir de la sesion.
 //
 // Lista blanca de prefijos y metodos: el puente solo alcanza los verticales portados (pagos,
-// clientes y cajas-bancos), no cualquier ruta del API. Un path inesperado responde 404 sin salir
-// del proceso.
+// clientes, cajas-bancos, ventas y series), no cualquier ruta del API. Un path inesperado responde
+// 404 sin salir del proceso.
 //
 // `PATCH` esta porque `PATCH /entities/:id` es la modificacion de cliente (T5c) y
 // `PATCH /settings` la configuracion general de cajas-bancos (C1). Sin el, el navegador recibia
@@ -45,6 +45,10 @@ const ALLOWED_PREFIXES = new Set([
   "receipt-categories",
   "catalogs",
   "settings",
+  // T5 del slice 2: series de comprobante (`/configuracion/series`). El CRUD son `GET/POST /series`,
+  // `PATCH /series/:id` y la baja logica por `POST /series/:id/delete`, asi que no hace falta abrir
+  // el puente a `DELETE` (S9): ese verbo no existe entre los que este proxy reenvia.
+  "series",
 ]);
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH"]);

@@ -94,6 +94,10 @@ const LINKS: NavLink[] = [
   // listado (`/ventas/nuevo`, `/ventas/[id]`, `/ventas/[id]/editar`): en el origen era un grupo con
   // esas mismas rutas.
   { label: "Ventas", href: "/ventas", icon: Receipt },
+  // T4/T5 del slice 2: `Configuración` deja de ser una entrada pendiente. Apunta a
+  // `/configuracion`, que redirige a `/configuracion/series` (S9): es el destino que ya usaba el
+  // enlace `Configurar series` de la pantalla de ventas, asi que el mapa de la app no cambia.
+  { label: "Configuración", href: "/configuracion", icon: Settings },
   { label: "Estado del API", href: "/health", icon: Activity },
 ];
 
@@ -101,7 +105,6 @@ const LINKS: NavLink[] = [
 const PENDING_GROUPS: PendingGroup[] = [
   { label: "Compras", icon: ShoppingCart, modules: ["/compras", "/compras/nuevo", "/compras/[id]"] },
   { label: "Notas y retenciones", icon: FileText, modules: ["/notas/credito", "/notas/debito", "/retenciones"] },
-  { label: "Configuración", icon: Settings, modules: ["/configuracion"] },
 ];
 
 /** Marca activa la entrada también en sus rutas hijas (/clientes/listado/... si alguna vez existe). */

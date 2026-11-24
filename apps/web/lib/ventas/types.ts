@@ -15,6 +15,7 @@ import type {
   VoucherStatus,
   VoucherType,
 } from "@gestion/shared/components/comprobantes/types.ts";
+import type { VoucherSeriesRow } from "@gestion/shared/lib/schemas/serie.ts";
 
 export type { PaymentType, Voucher, VoucherKind, VoucherStatus, VoucherType };
 
@@ -48,11 +49,15 @@ export interface VoucherListItem {
  * `creditDays` es OPCIONAL porque en CONTADO no viaja (el campo se omite, no se manda `null`: ver
  * `toVoucherRequestBody`). `dueDate` y `registrationDate` no estan: son columnas de la base
  * (`due_date` es generada) y `status` lo recalcula la tabla cuando se asignan o anulan pagos.
+ *
+ * `voucherNumber` tampoco esta (T5 del slice 2, S11): el numero lo asigna la base desde la serie
+ * por defecto del tipo, dentro de la transaccion del alta (S2). El preview que muestra la pantalla
+ * es de solo lectura y no es parte del cuerpo. El contrato de escritura del API todavia lo acepta
+ * y lo ignora (`voucherWriteSchema`), pero ningun cliente de este repo lo manda.
  */
 export interface VoucherWriteBody {
   issueDate: string;
   voucherType: VoucherType;
-  voucherNumber: string;
   entityId: string;
   total: number;
   paymentType: PaymentType;
@@ -63,16 +68,10 @@ export interface VoucherWriteBody {
 /**
  * Una serie de comprobante (`voucher_series`).
  *
- * Se declara aca aunque el slice 1 no tenga UI de series (`/configuracion` queda fuera, S1): el
- * formulario necesita la FORMA para sugerir el correlativo y para decidir si un tipo esta
- * disponible. `apps/api` todavia no expone el recurso, asi que hoy nadie la carga (ver
- * `components/ventas/voucher-form.tsx`).
+ * Es el contrato COMPARTIDO de la fila (`voucherSeriesSchema`), el mismo que devuelve el API y el
+ * que pinta `/configuracion/series`: el formulario de ventas solo usa `code`, `lastNumber`,
+ * `voucherType` e `isDefault`, y no tiene por que declarar una segunda forma que se desincronice.
+ * Las series que devuelve el API estan todas vivas (el listado filtra `deleted_at is null`), asi que
+ * `deletedAt` no viaja: el contrato no lo tiene.
  */
-export interface VoucherSeries {
-  id: string;
-  voucherType: VoucherType;
-  code: string;
-  lastNumber: number;
-  isDefault: boolean;
-  deletedAt: string | null;
-}
+export type VoucherSeries = VoucherSeriesRow;

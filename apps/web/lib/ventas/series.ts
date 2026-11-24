@@ -1,15 +1,15 @@
-// Series y correlativo del comprobante (T4 del port, S5 y S7).
+// Series y correlativo del comprobante (slice 1 T4 y slice 2 T4/T5: S5, S7, S8 y S11).
 //
-// Port de `lib/comprobantes/series.ts` del origen, solo la parte PURA: la sugerencia del numero y
-// las reglas de pantalla que dependen de las series. El CRUD de series (alta, baja, default) y el
-// avance del correlativo quedan fuera del slice 1 (S1: la UI de series es `/configuracion`), y el
-// avance hoy lo hace la RPC `crear_venta` dentro de la misma transaccion que el alta (S8), no la
+// Port de `lib/comprobantes/series.ts` del origen, solo la parte PURA: el preview del numero y las
+// reglas de pantalla que dependen de las series. El CRUD de series vive en
+// `lib/configuracion/series.ts` (la pantalla `/configuracion/series` del slice 2) y el avance del
+// correlativo lo hace la RPC `crear_venta` dentro de la misma transaccion que el alta (S2), no la
 // app: en el origen era una segunda llamada sin transaccion (L5).
 //
-// Consecuencia que T4 tiene que sostener: la sugerencia es una AYUDA, no una condicion. La RPC
-// registra la venta aunque no haya serie configurada para ese codigo y tipo (S7), asi que el
-// formulario no puede bloquear el guardado por falta de series; solo deshabilita los tipos que no
-// tienen serie por defecto, igual que el origen.
+// Consecuencia del slice 2: la serie dejo de ser una AYUDA. El numero lo asigna la base desde la
+// serie por defecto del tipo (S2), asi que sin serie por defecto no se registra
+// (`isSaleSeriesBlocked`, S11) y el preview del numero se calcula con `suggestVoucherNumber`. La RPC
+// ya no acepta un alta sin serie.
 //
 // Los textos de S5 se exportan como constantes en vez de escribirse dentro del JSX: el origen los
 // tenia partidos en varias lineas con `{" "}` de por medio, y asi el texto exacto solo estaba
@@ -27,8 +27,8 @@ export const VOUCHER_NUMBER_PARTS = /^([A-Za-z0-9]{1,4})-(\d{1,8})$/;
 /** Relleno del correlativo sugerido (`F001-000126`). */
 export const CORRELATIVE_PAD = 6;
 
-/** Pantalla de series del origen. Vive fuera del slice 1, pero el enlace tiene que apuntar a algo. */
-export const SERIES_CONFIG_PATH = "/configuracion";
+/** Pantalla de series (`/configuracion/series`, S8/S9 del slice 2). */
+export const SERIES_CONFIG_PATH = "/configuracion/series";
 
 export const NO_SALE_SERIES_MESSAGE = "Aún no tienes series de venta configuradas.";
 export const NO_SALE_SERIES_HINT =
@@ -42,7 +42,12 @@ function normalizeSeriesCode(code: string): string {
   return code.trim().toUpperCase();
 }
 
-/** Sugerencia editable: `F001-000126` a partir del ultimo correlativo usado. */
+/**
+ * Preview del proximo numero: `F001-000126` a partir del ultimo correlativo usado.
+ *
+ * Es una AYUDA visual de solo lectura (S11): el numero real lo asigna `crear_venta` y puede no ser
+ * este si otra venta consumio el correlativo entre el render y el guardado.
+ */
 export function suggestVoucherNumber(
   series: Pick<VoucherSeries, "code" | "lastNumber">
 ): string {
@@ -119,9 +124,10 @@ export function missingSeriesMessage(labels: string[]): string {
  * Dos reglas del origen, en este orden: en ventas un tipo sin serie por defecto no se ofrece, y
  * FACTURA exige ademas un cliente con RUC. En compras no aplica ninguna (el tipo queda libre).
  *
- * `defaultByType: null` significa "no hay fuente de series todavia" (hoy `apps/api` no expone el
- * recurso, ver `components/ventas/voucher-form.tsx`): sin datos no se puede afirmar que un tipo no
- * tenga serie, asi que esa mitad de la regla no se aplica y queda solo la de FACTURA con RUC.
+ * `defaultByType: null` significa "este vertical no tiene fuente de series" (hoy compras). Sin
+ * datos no se puede afirmar que un tipo no tenga serie, asi que esa mitad de la regla no se aplica
+ * y queda solo la de FACTURA con RUC. Ventas siempre trae el mapa: las series las carga
+ * `useVoucherSeries` en la vista del formulario.
  */
 export function isVoucherTypeDisabled({
   voucherKind,
@@ -143,4 +149,33 @@ export function isVoucherTypeDisabled({
   }
 
   return voucherType === "FACTURA" && !canIssueFactura;
+}
+
+/**
+ * Si la pantalla de alta de ventas queda bloqueada por falta de series (S11).
+ *
+ * Hasta el slice 1 la sugerencia de serie era una AYUDA: la RPC registraba igual sin serie. Desde el
+ * slice 2 el numero lo asigna la base desde la serie por defecto del tipo (S2), asi que sin
+ * ninguna serie por defecto no hay alta posible (`No hay una serie por defecto para este tipo de
+ * comprobante...`, S6). Por eso, sin series, el alta se BLOQUEA: el aviso de S5 se muestra y el
+ * boton de guardar se deshabilita, en vez de dejar que el usuario llene el formulario para recibir
+ * un 400 al final.
+ *
+ * Solo ventas y solo el alta: la edicion de un comprobante ya emitido no necesita serie (su numero
+ * es inmutable) y compras no tiene series todavia (el tipo queda libre).
+ */
+export function isSaleSeriesBlocked({
+  voucherKind,
+  isEditing,
+  series,
+}: {
+  voucherKind: VoucherKind;
+  isEditing: boolean;
+  series: VoucherSeries[];
+}): boolean {
+  if (voucherKind !== "VENTA" || isEditing) {
+    return false;
+  }
+
+  return !hasAnyDefaultSaleSeries(series);
 }

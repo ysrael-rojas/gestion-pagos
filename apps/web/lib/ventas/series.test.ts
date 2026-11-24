@@ -22,6 +22,7 @@ import {
   defaultSeriesByType,
   formatSeriesCorrelative,
   hasAnyDefaultSaleSeries,
+  isSaleSeriesBlocked,
   isVoucherTypeDisabled,
   joinLabels,
   missingDefaultSaleSeriesLabels,
@@ -38,7 +39,6 @@ const series = (
   code: voucherType.slice(0, 4),
   lastNumber: 0,
   isDefault: true,
-  deletedAt: null,
   ...overrides,
 });
 
@@ -136,7 +136,47 @@ describe("mensajes de series (S5)", () => {
       "Sin una serie por defecto no podrás elegir el tipo de comprobante ni registrar la venta."
     );
     assert.equal(CONFIGURE_SERIES_LABEL, "Configurar series");
-    assert.equal(SERIES_CONFIG_PATH, "/configuracion");
+    // T4/T5 del slice 2: la pantalla ya existe, asi que el enlace deja de apuntar a `/configuracion`
+    // (que ahora redirige) y va directo a la ruta de S8.
+    assert.equal(SERIES_CONFIG_PATH, "/configuracion/series");
+  });
+});
+
+describe("isSaleSeriesBlocked", () => {
+  it("bloquea el alta de ventas sin ninguna serie por defecto (S11)", () => {
+    assert.equal(
+      isSaleSeriesBlocked({ voucherKind: "VENTA", isEditing: false, series: [] }),
+      true
+    );
+    // Una serie que no es por defecto no habilita el alta: la base no tiene de donde numerar.
+    assert.equal(
+      isSaleSeriesBlocked({
+        voucherKind: "VENTA",
+        isEditing: false,
+        series: [series("FACTURA", { isDefault: false })],
+      }),
+      true
+    );
+    assert.equal(
+      isSaleSeriesBlocked({
+        voucherKind: "VENTA",
+        isEditing: false,
+        series: [series("BOLETA")],
+      }),
+      false
+    );
+  });
+
+  it("no bloquea la edicion ni el vertical de compras", () => {
+    // Un comprobante ya emitido tiene su numero: editar no necesita serie (y el numero no cambia).
+    assert.equal(
+      isSaleSeriesBlocked({ voucherKind: "VENTA", isEditing: true, series: [] }),
+      false
+    );
+    assert.equal(
+      isSaleSeriesBlocked({ voucherKind: "COMPRA", isEditing: false, series: [] }),
+      false
+    );
   });
 });
 

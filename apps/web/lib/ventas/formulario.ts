@@ -14,6 +14,8 @@
 //     comprobantes historicos; vive aca y se aplica al elegir el tipo y al enviar.
 //   * El body del POST/PATCH (`toVoucherRequestBody`), que NO es el output del formulario sin
 //     tocar: ver su comentario.
+//   * El preview del numero de comprobante (`previewVoucherNumber`, S11): el numero dejo de
+//     tipearse en el slice 2, lo asigna la base.
 import {
   DEFAULT_CREDIT_DAYS,
   DEFAULT_SALE_STATUS,
@@ -28,9 +30,11 @@ import type {
   PaymentType,
   Voucher,
   VoucherKind,
+  VoucherSeries,
   VoucherType,
   VoucherWriteBody,
 } from "./types.ts";
+import { suggestVoucherNumber } from "./series.ts";
 
 /** Error que se cuelga del select de tipo cuando el cliente no puede recibir factura (S5). */
 export const FACTURA_REQUIRES_RUC = "No se puede emitir factura a un cliente sin RUC";
@@ -161,6 +165,34 @@ export function isPaidLocked(
 }
 
 /**
+ * Numero que muestra el campo de solo lectura (S11).
+ *
+ * Dos casos, y solo dos:
+ *
+ *   * Edicion: el numero ya emitido del comprobante. Es INMUTABLE (S13.3), asi que el preview no
+ *     puede recalcularse desde la serie aunque esta haya avanzado desde que se emitio.
+ *   * Alta: el proximo correlativo de la serie por defecto del tipo elegido (`F001-000126`). Es un
+ *     preview y puede venir viejo: el numero real lo asigna la base dentro de la transaccion que
+ *     escribe el comprobante (S2), y es el que devuelve el detalle.
+ *
+ * Sin tipo elegido o sin serie por defecto devuelve `""`: no se inventa un numero. Ese caso lo
+ * cubre el bloqueo de la pantalla (`isSaleSeriesBlocked`) y los tipos deshabilitados.
+ */
+export function previewVoucherNumber(
+  voucher: Pick<Voucher, "voucherNumber"> | null | undefined,
+  defaultSeries:
+    | Pick<VoucherSeries, "code" | "lastNumber">
+    | null
+    | undefined
+): string {
+  if (voucher) {
+    return voucher.voucherNumber;
+  }
+
+  return defaultSeries ? suggestVoucherNumber(defaultSeries) : "";
+}
+
+/**
  * Body de `POST /vouchers` y `PATCH /vouchers/:id`.
  *
  * TRAMPA DEL PORT: el OUTPUT de `voucherFormSchema` (`creditDays: null` en CONTADO) **no** es un
@@ -171,12 +203,16 @@ export function isPaidLocked(
  *
  * `status` viaja porque es parte del contrato del formulario, aunque el API no lo escriba: lo
  * deriva la tabla y lo recalcula `refresh_comprobante_status` al asignar o anular pagos.
+ *
+ * `voucherNumber` NO viaja (T5 del slice 2, S11): el numero lo asigna la base desde la serie por
+ * defecto del tipo (S2) y el `preview` de la pantalla es solo una ayuda visual. El contrato de
+ * escritura (`voucherWriteSchema`) sigue aceptandolo y ignorandolo por compatibilidad, pero el
+ * cliente ya no lo manda.
  */
 export function toVoucherRequestBody(values: VoucherFormValues): VoucherWriteBody {
   const body: VoucherWriteBody = {
     issueDate: values.issueDate,
     voucherType: values.voucherType,
-    voucherNumber: values.voucherNumber,
     entityId: values.entityId,
     total: values.total,
     paymentType: values.paymentType,

@@ -7,10 +7,13 @@
 //
 // Diferencias con el origen, todas por el stack o por decisiones ya tomadas en el slice:
 //
-//   * No hay `useVoucherSeries()`: `apps/api` **no** expone las series (la UI de series es
-//     `/configuracion`, fuera del slice 1). El componente recibe `series?: VoucherSeries[]`; con
-//     `undefined` (hoy) no promete nada de series: no sugiere correlativo ni deshabilita tipos.
-//     Ver el comentario de `seriesGatesTypes`.
+//   * Las series llegan por prop (`series`), no de un `useVoucherSeries()` interno: la vista que
+//     monta la pagina es la que las carga (una sola peticion a `GET /series`) porque tambien las
+//     necesita para deshabilitar el guardado cuando el alta esta bloqueada (S11).
+//   * EL NUMERO DE COMPROBANTE YA NO SE TIPA (S11). Se muestra como preview de solo lectura:
+//     `code-(last+1)` de la serie por defecto del tipo en el alta, y el numero ya emitido en la
+//     edicion. Se fue la logica de "si el usuario lo edito, respetarlo" y no viaja en el body: el
+//     numero real lo asigna la base en la transaccion del alta y es el que devuelve el detalle.
 //   * Los montos salen de `saleAmounts` de `@gestion/shared` (S2), no de un `calculateAmounts` local.
 //   * `dueDate` se previsualiza con `calculateDueDate` de `lib/ventas/fechas.ts`, que trabaja en UTC:
 //     el origen usaba la hora local del navegador (S9).
@@ -18,7 +21,7 @@
 //     compara completos.
 //   * Las entidades NO se cargan desde `lib/clientes`: clientes vienen del `ClientesProvider` del
 //     layout (ya hidratados) y proveedores de `listSuppliers()`, igual que el origen.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -51,6 +54,7 @@ import {
   creditDaysForPaymentType,
   isPaidLocked,
   paidLockMessage,
+  previewVoucherNumber,
   toVoucherFormValues,
   voucherCopy,
 } from "@/lib/ventas/formulario";
@@ -64,7 +68,6 @@ import {
   isVoucherTypeDisabled,
   missingDefaultSaleSeriesLabels,
   missingSeriesMessage,
-  suggestVoucherNumber,
 } from "@/lib/ventas/series";
 import type {
   PaymentType,
@@ -90,10 +93,15 @@ interface VoucherFormProps {
   voucherKind: VoucherKind;
   voucher?: VoucherDetail | null;
   /**
-   * Series del dueno, cuando exista de donde leerlas. `undefined` = no hay fuente todavia (el
-   * API no expone series), y en ese caso el formulario no sugiere correlativo ni deshabilita tipos.
+   * Series del dueno. `undefined` = el vertical todavia no tiene fuente de series (hoy compras), y
+   * en ese caso el formulario no promete nada de series: no previsualiza correlativo ni deshabilita
+   * tipos. Ventas siempre las trae: la vista las carga y las pasa.
    */
   series?: VoucherSeries[];
+  /** Mientras se cargan las series no se muestra el bloqueo de S11 ni se elige tipo. */
+  seriesLoading?: boolean;
+  /** Error de la carga de series, si hubo: nunca se disfraza de "no hay series". */
+  seriesError?: string | null;
   onSubmit: (values: VoucherFormValues) => void;
 }
 
@@ -181,6 +189,8 @@ export function VoucherForm({
   voucherKind,
   voucher,
   series,
+  seriesLoading = false,
+  seriesError = null,
   onSubmit,
 }: VoucherFormProps) {
   const isSale = voucherKind === "VENTA";
@@ -260,10 +270,9 @@ export function VoucherForm({
 
   const errors = form.formState.errors;
 
-  // Series: `undefined` significa "no hay fuente todavia" (S1: el API no expone series y la UI de
-  // `/configuracion` es de un slice posterior). Sin fuente, el formulario NO deshabilita tipos: la
-  // sugerencia es una ayuda y la RPC registra igual sin serie configurada (S7). Cuando T5 o el
-  // slice de series pase el arreglo, la regla del origen se activa sola.
+  // Series: `undefined` significa "este vertical no tiene fuente de series" (hoy compras). Con
+  // fuente, se aplican las dos reglas de la pantalla: los tipos sin serie por defecto quedan
+  // deshabilitados y, sin ninguna serie por defecto, el alta se bloquea (S11).
   const seriesGatesTypes = isSale && series !== undefined;
   const ownerSeries = useMemo(() => series ?? [], [series]);
 
@@ -284,39 +293,25 @@ export function VoucherForm({
 
   const defaultSeries = voucherType ? defaultByType.get(voucherType) ?? null : null;
 
-  const previousTypeRef = useRef<VoucherType | "">("");
-  const suggestionRef = useRef("");
+  // Preview de solo lectura (S11). El valor se escribe en el formulario porque `voucherFormSchema`
+  // sigue exigiendo `voucherNumber` — es el preview, no el numero real — y `toVoucherRequestBody`
+  // ya no lo manda al API: el numero lo asigna la base y es el que devuelve el detalle.
+  const previewNumber = previewVoucherNumber(voucher, defaultSeries);
 
-  // Sugerencia de numeracion (solo ventas nuevas y solo con series cargadas). Si cambia el tipo se
-  // recalcula; si el usuario edito el numero a mano, se respeta.
   useEffect(() => {
-    if (!seriesGatesTypes || voucher || !series) {
-      previousTypeRef.current = "";
-      suggestionRef.current = "";
+    if (!isSale) {
       return;
     }
 
-    const typeChanged = previousTypeRef.current !== voucherType;
-    previousTypeRef.current = voucherType;
+    form.setValue("voucherNumber", previewNumber, { shouldValidate: false });
+  }, [form, isSale, previewNumber]);
 
-    if (!defaultSeries) {
-      suggestionRef.current = "";
-      return;
-    }
-
-    const nextSuggestion = suggestVoucherNumber(defaultSeries);
-    const currentNumber = form.getValues("voucherNumber");
-
-    if (
-      typeChanged ||
-      !currentNumber ||
-      currentNumber === suggestionRef.current
-    ) {
-      form.setValue("voucherNumber", nextSuggestion, { shouldValidate: false });
-    }
-
-    suggestionRef.current = nextSuggestion;
-  }, [defaultSeries, form, seriesGatesTypes, series, voucher, voucherType]);
+  // Mientras las series cargan no se puede elegir tipo (el origen hacia lo mismo): el preview
+  // todavia no tendria de donde salir y el bloqueo de S11 aun no se puede afirmar.
+  // En edicion el tipo es INMUTABLE: el numero lo asigno la serie de ese tipo y `editar_venta`
+  // rechaza el cambio con 409 (`20261126090000_series_rules.sql`, S13.3). Dejar el selector
+  // habilitado seria ofrecer una accion que la base va a rechazar.
+  const isTypeSelectDisabled = isSale && (seriesLoading || voucher !== undefined);
 
   function isTypeDisabled(value: VoucherType): boolean {
     return isVoucherTypeDisabled({
@@ -359,7 +354,7 @@ export function VoucherForm({
         </p>
       ) : null}
 
-      {seriesGatesTypes && !voucher && !hasAnySeries ? (
+      {seriesGatesTypes && !voucher && !seriesLoading && !hasAnySeries ? (
         <div
           role="status"
           className="flex flex-col gap-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
@@ -373,6 +368,12 @@ export function VoucherForm({
             {CONFIGURE_SERIES_LABEL}
           </Link>
         </div>
+      ) : null}
+
+      {seriesGatesTypes && seriesError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {seriesError}
+        </p>
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -418,6 +419,7 @@ export function VoucherForm({
                   <SelectTrigger
                     id="voucherType"
                     className="w-full"
+                    disabled={isTypeSelectDisabled}
                     aria-invalid={!!errors.voucherType}
                   >
                     <SelectValue placeholder="Selecciona un tipo" />
@@ -450,17 +452,32 @@ export function VoucherForm({
           />
 
           <div className="flex flex-col gap-1.5">
-            <RequiredLabel htmlFor="voucherNumber">
-              Nro comprobante
-            </RequiredLabel>
-            <Input
-              id="voucherNumber"
-              placeholder="F001-000001"
-              disabled={isLocked}
-              aria-invalid={!!errors.voucherNumber}
-              {...form.register("voucherNumber")}
-            />
-            <FieldError message={errors.voucherNumber?.message} />
+            <Label htmlFor="voucherNumber">Nro comprobante</Label>
+            {isSale ? (
+              // S11: el numero dejo de tipearse. El real lo asigna la base desde la serie por
+              // defecto del tipo, dentro de la transaccion del alta; este preview puede venir viejo
+              // (otra venta pudo consumir el correlativo) y el que manda es el que devuelve el
+              // detalle.
+              <Input
+                id="voucherNumber"
+                value={previewNumber}
+                placeholder="F001-000001"
+                readOnly
+                disabled
+              />
+            ) : (
+              // Compras conserva el numero tipado: ese vertical todavia no asigna numeros.
+              <>
+                <Input
+                  id="voucherNumber"
+                  placeholder="F001-000001"
+                  disabled={isLocked}
+                  aria-invalid={!!errors.voucherNumber}
+                  {...form.register("voucherNumber")}
+                />
+                <FieldError message={errors.voucherNumber?.message} />
+              </>
+            )}
           </div>
 
           <Controller

@@ -1,4 +1,4 @@
-// Lectura de filas del vertical de ventas para los specs 10 y 11 (T5 y T6 del port).
+// Lectura de filas del vertical de ventas para los specs 10, 11 y 12 (T5 y T6 del port).
 //
 // Mismo criterio que `clientes-fixtures.ts`: `owner.ts` siembra el comprobante y lo borra, pero no
 // devuelve la fila, y los casos de S11 necesitan afirmar lo que quedo ESCRITO (los montos que
@@ -10,6 +10,11 @@
 // afirmar "sin huecos" es leer la tabla `comprobante` (los numeros que quedaron escritos) y la
 // tabla `voucher_series` (`last_number`, que avanzo la misma transaccion). Por eso este archivo
 // tambien siembra series y las lee, incluidas las dadas de baja.
+//
+// El slice 3 agrega la lectura de NOTAS (`notesOf`): una nota es otra fila de `comprobante` con
+// `referenced_comprobante_id` y `motive_code`, asi que el spec 12 afirma contra la misma tabla lo
+// que la pantalla muestra y lo que la base escribio (el numero que asigno la serie, el motivo, el
+// total y el tope).
 //
 // Todo es aditivo: no cambia ningun helper existente ni el baseline de conteos (`database.ts`).
 // Las filas que el spec crea (por la UI o por fixtures) salen con el dueno en
@@ -238,16 +243,92 @@ export function allocationsOf(owner: Owner, comprobanteId: string): AllocationRo
 }
 
 /**
- * Tipos que pueden tener serie: los TRES que la app emite (S4).
+ * Notas de credito/debito aplicadas a un comprobante, de la mas vieja a la mas nueva.
  *
- * `NOTA_CREDITO`, `NOTA_DEBITO` y `COMPROBANTE_RETENCION` existen en el enum pero `crear_serie` los
- * rechaza (`20261126090000_series_rules.sql`, S13.2), asi que una fixture que los pidiera solo
- * podria fallar.
+ * Es el contrato de fila del detalle (`GET /notes?voucherId=`) leido de la base: lo que el spec 12
+ * afirma no es solo lo que la pantalla pinta, sino la fila que `public.crear_nota` escribio —con el
+ * numero que asigno la serie del tipo— y el motivo del catalogo de S9. Se ordena por `created_at`
+ * (el orden de emision) para que el caso del tope pueda afirmar cuantas notas quedaron.
  */
-export type SeriesVoucherType = "FACTURA" | "BOLETA" | "NOTA_VENTA";
+export interface NoteRow {
+	id: string;
+	/** `NOTA_CREDITO` / `NOTA_DEBITO`. */
+	voucherType: string;
+	voucherNumber: string;
+	issueDate: string;
+	/** Codigo del catalogo SUNAT de S9. En una nota nunca es `null`. */
+	motiveCode: string | null;
+	total: number;
+}
 
-/** Los mismos tres tipos, como lista, para validar la entrada de la fixture. */
-const SERIES_VOUCHER_TYPES: SeriesVoucherType[] = ["FACTURA", "BOLETA", "NOTA_VENTA"];
+const NOTE_COLUMNS = [
+	"id",
+	"voucher_type::text",
+	"voucher_number",
+	"issue_date::text",
+	"coalesce(motive_code, '')",
+	"total::text",
+].join(" || '|' || ");
+
+export function notesOf(owner: Owner, referencedComprobanteId: string): NoteRow[] {
+	const sql =
+		`select ${NOTE_COLUMNS} from public.comprobante ` +
+		`where owner_id = ${sqlText(owner.id)} ` +
+		`and referenced_comprobante_id = ${uuidLiteral(referencedComprobanteId)} ` +
+		"order by created_at;\n";
+
+	return psqlLines(sql).map((line) => {
+		const fields = line.split("|");
+
+		if (fields.length !== 6) {
+			throw new Error(
+				`Fila de nota ilegible (${fields.length} campos): ${JSON.stringify(line)}`,
+			);
+		}
+
+		const [id, voucherType, voucherNumber, issueDate, motiveCode, total] = fields as [
+			string,
+			string,
+			string,
+			string,
+			string,
+			string,
+		];
+
+		return {
+			id,
+			voucherType,
+			voucherNumber,
+			issueDate,
+			motiveCode: motiveCode === "" ? null : motiveCode,
+			total: Number(total),
+		};
+	});
+}
+
+/**
+ * Tipos que pueden tener serie: los CINCO que la app emite (S4 del slice 2 y S3 del slice 3).
+ *
+ * `NOTA_CREDITO` y `NOTA_DEBITO` entraron con el slice de notas: `public.crear_serie` los acepta
+ * desde `20261127090000_notas_rpcs.sql` y son las series con las que la base numera una nota. El
+ * `COMPROBANTE_RETENCION` sigue afuera: la RPC lo rechaza (`Los datos de la serie no son válidos.`)
+ * hasta que exista el flujo que lo emite, asi que una fixture que lo pidiera solo podria fallar.
+ */
+export type SeriesVoucherType =
+	| "FACTURA"
+	| "BOLETA"
+	| "NOTA_VENTA"
+	| "NOTA_CREDITO"
+	| "NOTA_DEBITO";
+
+/** Los mismos cinco tipos, como lista, para validar la entrada de la fixture. */
+const SERIES_VOUCHER_TYPES: SeriesVoucherType[] = [
+	"FACTURA",
+	"BOLETA",
+	"NOTA_VENTA",
+	"NOTA_CREDITO",
+	"NOTA_DEBITO",
+];
 
 /** Fila de `public.voucher_series` que el spec necesita afirmar. */
 export interface SeriesRow {

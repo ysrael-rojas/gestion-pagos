@@ -6,15 +6,20 @@
 //
 // QUE NO SE PORTA, y por que:
 //
-//   * Las solapas de notas de credito/debito y retenciones: son otro modulo, y `apps/api` no tiene
-//     esas rutas todavia (S1: el slice 1 son comprobantes base).
+//   * Las solapas del origen (`datos`, `pagos`, `notas`, `retenciones`): este detalle es una sola
+//     pagina con secciones, y las retenciones todavia no tienen flujo (tienen su propio slice).
 //   * El historial de pagos y el `PaymentDrawer`: el pago es el vertical de pagos, y el slice 1
 //     prohibe portar el drawer. `Registrar pago` es un ENLACE al alta de recibos que ya existe
 //     (`paymentEntryHref`), con la entidad y el comprobante precargados.
 //
-// Lo que si se conserva: la banda de montos (total, abonado y saldo, que vienen calculados de la
-// base), el badge de estado, el boton de cobro solo cuando queda saldo PENDIENTE (S10) y la ficha
-// de datos con `dd/mm/yyyy`.
+// LO QUE SI SE SUMA (slice 3, S11 del doc de notas): la seccion `Notas de crédito/débito`, con la
+// tabla de notas del comprobante, sus dos totales, su vacio y el alta desde ahi (L3.f: el origen
+// registraba en un listado aparte, `/notas/credito`). El alta recarga el comprobante porque la nota
+// mueve el saldo (S2) y la banda de montos tiene que mostrar el saldo nuevo.
+//
+// Lo que se conserva: la banda de montos (total, abonado y saldo, que vienen calculados de la base),
+// el badge de estado, el boton de cobro solo cuando queda saldo PENDIENTE (S10) y la ficha de datos
+// con `dd/mm/yyyy`.
 import Link from "next/link";
 import { Wallet } from "lucide-react";
 
@@ -22,6 +27,7 @@ import { BackLink } from "@/components/shared/back-link";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VoucherAmountsBand } from "@/components/ventas/voucher-amounts-band";
+import { VoucherNotasSection } from "@/components/ventas/voucher-notas-section";
 import { VoucherStatusBadge } from "@/components/ventas/voucher-status-badge";
 import { useVoucher } from "@/components/ventas/use-voucher";
 import { voucherCopy } from "@/lib/ventas/formulario";
@@ -54,7 +60,7 @@ export function VoucherDetalleView({
   voucherId,
 }: VoucherDetalleViewProps) {
   const copy = voucherCopy(voucherKind);
-  const { voucher, isLoading, error } = useVoucher(voucherId, voucherKind);
+  const { voucher, isLoading, error, reload } = useVoucher(voucherId, voucherKind);
 
   if (isLoading) {
     return (
@@ -166,6 +172,16 @@ export function VoucherDetalleView({
           </div>
         </CardContent>
       </Card>
+
+      {/*
+        S11 del doc de notas: el detalle de una VENTA gana la seccion de notas. Es solo de ventas
+        porque este slice emite notas sobre ventas (las compras tienen su port pendiente) y porque la
+        seccion crea notas: ofrecerla en un comprobante que no se puede referenciar seria ofrecer una
+        accion que la base rechaza (S6).
+      */}
+      {voucherKind === "VENTA" ? (
+        <VoucherNotasSection voucher={voucher} onCreated={reload} />
+      ) : null}
     </main>
   );
 }

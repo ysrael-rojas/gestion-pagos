@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 
-import { insertSeries, seriesByCode, seriesRows } from "../support/ventas-fixtures";
+import { provisionFixtures } from "../support/owner";
+import { insertSeries, notesOf, seriesByCode, seriesRows } from "../support/ventas-fixtures";
 import { expect, test } from "../support/test";
 import { chooseOption, notifications, signInThroughForm } from "../support/ui";
 
@@ -20,7 +21,7 @@ import { chooseOption, notifications, signInThroughForm } from "../support/ui";
 // (`apps/api/test/series.e2e.test.ts`, 10 casos): aca no se re-testea el contrato HTTP, se prueba
 // que la pantalla lo usa.
 //
-// Los cuatro casos:
+// Los casos:
 //
 //   redireccion     `/configuracion` redirige a `/configuracion/series` (S9), la pantalla de un
 //                   dueno nuevo muestra su estado vacio con las columnas de S8, y el navbar marca
@@ -28,6 +29,9 @@ import { chooseOption, notifications, signInThroughForm } from "../support/ui";
 //   alta            el alta por el modal real, con la fila en la base (`last_number`, `is_default`),
 //                   el codigo duplicado rechazado con el mensaje de S6 y el codigo invalido
 //                   bloqueado por el formulario con el mensaje de S7.
+//   serie de nota   (slice 3, S11 del doc de notas) la pantalla ofrece `Nota de crédito` y
+//                   `Nota de débito` junto a los tres tipos de venta, y la serie creada se USA: la
+//                   nota de credito del detalle de una venta toma su numero y la hace avanzar.
 //   edicion         el tipo queda fijo (S5, L4a) y mover la predeterminada deja UNA sola por tipo,
 //                   en la pantalla y en la base.
 //   baja            la baja es logica: la fila sale del listado (tambien tras recargar) y queda con
@@ -346,4 +350,66 @@ test("dar de baja una serie la marca como borrada y la saca de la tabla", async 
 	await expect(page.getByText("Series de comprobantes", { exact: true })).toBeVisible();
 	await expect(page.getByRole("cell", { name: EMPTY_MESSAGE })).toBeVisible();
 	await expect(seriesRow(page, "B001")).toHaveCount(0);
+});
+
+// S11 del slice 3 (y S3 del doc de notas): la pantalla ofrece los tipos de nota y la serie que se
+// crea se USA.
+//
+// Hasta el slice 2 `crear_serie` rechazaba `NOTA_CREDITO` y `NOTA_DEBITO`, asi que la pantalla no los
+// ofrecia. Desde `20261127090000_notas_rpcs.sql` son dos de los cinco tipos que la app emite, y esta
+// es la prueba de punta a punta del ciclo completo: se crea la serie por el modal real (codigo en
+// minusculas, que la pantalla sube al tipear) y despues se registra una nota de credito desde el
+// detalle de una venta, que toma `FC01-000001` de ESA serie y la hace avanzar.
+//
+// Los dos lados se afirman contra la base: la fila de `voucher_series` con `last_number = 0` recien
+// creada y `1` despues de la nota, y la fila de la nota con el numero que le asigno la base.
+test("crea la serie de una nota de crédito y numera la primera nota", async ({ page, owner }) => {
+	const fixtures = provisionFixtures(owner, { voucher: true, voucherTotal: 500 });
+	const voucher = fixtures.voucher!;
+
+	await signInThroughForm(page, owner);
+	await page.goto(SERIES);
+
+	const dialog = await openCreateModal(page);
+
+	// S11 del slice 3: el select ofrece los tipos de nota junto a los de venta.
+	await chooseOption(page, "Tipo de comprobante", "Nota de crédito");
+	await dialog.locator("#serie-code").fill("fc01");
+	await expect(dialog.locator("#serie-code")).toHaveValue("FC01");
+	await dialog.getByRole("checkbox", { name: DEFAULT_CHECKBOX }).check();
+	await dialog.getByRole("button", { name: "Agregar serie" }).click();
+
+	await expect(notifications(page)).toContainText(CREATE_TOAST);
+
+	const created = seriesByCode(owner, "NOTA_CREDITO", "FC01");
+
+	expect(created).not.toBeNull();
+	expect(created?.isDefault).toBe(true);
+	expect(created?.lastNumber).toBe(0);
+	await expect(seriesRow(page, "FC01")).toContainText("Nota de crédito");
+	await expect(seriesRow(page, "FC01")).toContainText(DEFAULT_BADGE);
+
+	// Y SE USA: la nota de credito del detalle de la venta toma el numero de esa serie.
+	await page.goto(`/ventas/${voucher.id}`);
+	await page.getByRole("button", { name: "Agregar nota de crédito" }).click();
+
+	const nota = page.getByRole("dialog");
+
+	await expect(nota.getByRole("heading", { name: "Registrar una nota de crédito" })).toBeVisible();
+	await expect(nota.locator("#nota-voucherNumber")).toHaveValue("FC01-000001");
+
+	await chooseOption(page, "Motivo", "Otros conceptos");
+	await nota.locator("#nota-total").fill("100");
+	await nota.getByRole("button", { name: "Registrar" }).click();
+
+	await expect(notifications(page).getByText("Documento registrado")).toBeVisible();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+
+	const notas = notesOf(owner, voucher.id);
+
+	expect(notas).toHaveLength(1);
+	expect(notas[0]?.voucherNumber).toBe("FC01-000001");
+	expect(notas[0]?.motiveCode).toBe("10");
+	// El correlativo lo movio la MISMA transaccion del alta (S3 del doc de notas).
+	expect(seriesByCode(owner, "NOTA_CREDITO", "FC01")?.lastNumber).toBe(1);
 });

@@ -1,0 +1,100 @@
+-- ============================================================================
+-- Spec de pagos (S1-S3 de `odd/tasks/pagos-revoke-writes.md`): `authenticated` pierde UPDATE y
+-- DELETE en las tres tablas del modulo de pagos que la aplicacion NO escribe con DML directo.
+--
+-- Es la misma clase de exposicion que cerro `20261123165000_revoke_cash_writes.sql` en cajas, y
+-- la premisa se contrasto contra el codigo ANTES de escribir este archivo (L3 del doc: en cajas
+-- la deuda pedia grants por columna y no hacian falta). El camino de escritura de la app sobre
+-- estas tablas no es DML de `authenticated`: es una funcion `SECURITY DEFINER`, que corre con
+-- los privilegios del dueno de la tabla (`dev_user`), no con los del rol de la aplicacion. Un
+-- revoke puro alcanza; un grant por columna aca seria privilegio muerto.
+--
+-- Por que el privilegio estaba concedido: `20261029101500:96`
+-- (`grant select, insert, update, delete on all tables in schema public to authenticated`),
+-- masivo e idempotente, aplicado cuando las tres tablas ya existian en el port (`comprobante` en
+-- `20260928204043:6`, `receipt_sequence` en `20260929222541:7`, `voucher_series` en
+-- `20261026215202:7`). Ese grant es la razon por la que este archivo hace falta, y tambien la
+-- razon por la que el estado que fija no puede quedar solo aca: su repeticion en un archivo
+-- futuro devuelve el privilegio a todas las tablas de `public` en silencio.
+--
+-- ---------------------------------------------------------------------------
+-- Que se revoca, quien escribe cada tabla y por que el revoke no lo rompe.
+-- ---------------------------------------------------------------------------
+-- `comprobante` -- `status` es derivado: lo escribe SOLO `private.refresh_comprobante_status`
+-- (`20261017114635:93`, `security definer` en `:96`, su `update public.comprobante` en `:121`).
+-- Lo invocan tres triggers, todos sobre funciones `SECURITY DEFINER`:
+--   * `private.allocation_refresh_status` (`20260929222541:170`, trigger
+--     `payment_allocation_status` en `:189-191`), al asignar un pago a un comprobante;
+--   * `private.payment_refresh_status` (`20260929222541:193`, trigger `payment_status_refresh`
+--     en `:207-209`), al anular o des-anular un pago;
+--   * `private.refresh_referenced_status` (`20261017114635:130`, trigger
+--     `comprobante_adjustment_status` en `:159-162`), al nacer, cambiar o darse de baja una nota.
+-- Ningun camino de la aplicacion hace UPDATE ni DELETE directo sobre `comprobante`: api no la
+-- declara en su schema Drizzle (`apps/api/src/db/schema/payment-allocation.ts:10` lo documenta
+-- como FK no declarada) y sus escrituras de fixture corren como dueno de la tabla, fuera de
+-- `authenticated`.
+--
+-- `receipt_sequence` -- el correlativo lo escribe SOLO `private.next_receipt_serial`
+-- (`20261002041054:100`, `security definer` en `:105`, su `insert ... on conflict do update` en
+-- `:111-114`), invocada por `private.assign_receipt_number` (`:121`, definer en `:124`) desde el
+-- trigger `payment_assign_receipt` (`:133-136`). Ademas la tabla no tiene NINGUNA politica (la
+-- unica, `receipt_sequence_select`, se dropeo en `20261003050013:71`): el DELETE que se revoca no
+-- estaba respaldado por politica alguna, asi que ya era inerte. El revoke lo deja inalcanzable
+-- tambien en el catalogo, que es la capa que un `grant ... on all tables` puede deshacer.
+--
+-- `voucher_series` -- no la escribe NADIE: cero filas en la base de desarrollo, cero consumidores
+-- en `apps/**` y ninguna funcion, trigger o RPC la nombra. Tiene politica CRUD completa
+-- (`20261026215202:28-35`), o sea que hoy cualquier `authenticated` puede escribirla -- es la
+-- unica de las tres donde el revoke cierra una escritura realmente alcanzable, y la cierra sin
+-- tocar ninguna ruta porque no hay ruta. Si una funcionalidad futura necesita escribirla, el
+-- grant vuelve junto con esa ruta y su prueba, no antes.
+--
+-- `comprobante` tampoco tenia politica de DELETE (se dropeo en `20261015053016:53`, porque la
+-- baja de un comprobante emitido es logica); su DELETE era inerte por la misma razon.
+--
+-- Las politicas NO se dropean (mismo criterio que `20261123165000`): sin el privilegio de tabla
+-- una politica no se evalua nunca, y borrarlas perderia la intencion del dueno por comando si un
+-- dia vuelve el grant. Quedan `comprobante_update` (`20261003043313:84`) y las cuatro de
+-- `voucher_series` (`20261026215202:28-35`).
+--
+-- ---------------------------------------------------------------------------
+-- Que NO se toca: `payment`.
+-- ---------------------------------------------------------------------------
+-- `payment` es la unica tabla del modulo con escritor directo real desde el rol de la
+-- aplicacion, y por eso conserva su matriz:
+--   * `apps/api/src/payments/payments.service.ts:243-245` anula un pago con
+--     `update payment set status, void_reason, voided_at`;
+--   * `apps/api/src/payments/payments.service.ts:288-290` le asigna entidad con
+--     `update payment set entity_id` (el anticipo generico que se liga al asignar).
+-- Revocar ahi rompe las dos pantallas. Su estado -- sin UPDATE ni DELETE de tabla, con UPDATE
+-- solo sobre `entity_id, status, void_reason, voided_at` y con el INSERT concedido -- lo fija
+-- `20261029101500:138-141` (reaplicando `20261012221550_harden_financial_history_v1.sql`), y
+-- este archivo no lo repite ni lo cambia: son entradas de ACL independientes sobre otra relacion.
+-- El INSERT de `payment` es privilegio muerto (no hay politica de INSERT desde
+-- `20261028194204:67`) pero tampoco se revoca: mismo criterio que L12(a), no ampliar el alcance
+-- sin pedido.
+--
+-- ---------------------------------------------------------------------------
+-- `payment_balance` y `voucher_balance`: documentadas, NO revocadas.
+-- ---------------------------------------------------------------------------
+-- Las dos son vistas `security_invoker` (`payment_balance` en `20260929222541:231`,
+-- `voucher_balance` en `20261017114635:275-277`) con `group by`/subconsultas, o sea NO
+-- auto-actualizables: `information_schema.views` las declara `is_updatable = NO` y no tienen
+-- trigger `instead of`. Sus grants de UPDATE/DELETE son entonces de CATALOGO, no de
+-- comportamiento: revocarlos no cierra ninguna escritura y no cambia el resultado de ninguna
+-- ruta. Se dejan como estan a proposito, por dos motivos concretos:
+--   1. el alcance de esta migracion son las TRES tablas de S1; un revoke en las vistas no se
+--      distingue de "cerramos un camino de escritura" en el log de auditoria, y no cierra nada;
+--   2. si algun dia se hace, es higiene de catalogo y el comentario tiene que decir eso -- no
+--      "cerramos una escritura" --, porque el dia que una vista se vuelva auto-actualizable el
+--      grant si tendria efecto, y ese dia el revoke tiene que venir con su prueba.
+--
+-- Idempotente: `revoke` lo es por naturaleza; reaplicar el archivo converge al mismo estado. Las
+-- tres tablas existen desde migraciones anteriores (`20260928204043`, `20260929222541`,
+-- `20261026215202`), asi que no hace falta guard de existencia como el `to_regclass` de
+-- `20261029101500:112-118`: no hay orden en el que este archivo corra antes que ellas.
+-- ============================================================================
+
+revoke update, delete on table public.comprobante from authenticated;
+revoke update, delete on table public.voucher_series from authenticated;
+revoke update, delete on table public.receipt_sequence from authenticated;

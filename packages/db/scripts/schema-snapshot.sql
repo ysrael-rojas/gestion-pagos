@@ -804,7 +804,6 @@ GRANT DELETE ON TABLE public.cash_receipt_category TO service_role
 GRANT DELETE ON TABLE public.cash_transfer TO OWNER
 GRANT DELETE ON TABLE public.cash_transfer TO service_role
 GRANT DELETE ON TABLE public.comprobante TO OWNER
-GRANT DELETE ON TABLE public.comprobante TO authenticated
 GRANT DELETE ON TABLE public.comprobante TO service_role
 GRANT DELETE ON TABLE public.entidad TO OWNER
 GRANT DELETE ON TABLE public.entidad TO authenticated
@@ -822,13 +821,11 @@ GRANT DELETE ON TABLE public.payment_method TO service_role
 GRANT DELETE ON TABLE public.petty_cash_vale TO OWNER
 GRANT DELETE ON TABLE public.petty_cash_vale TO service_role
 GRANT DELETE ON TABLE public.receipt_sequence TO OWNER
-GRANT DELETE ON TABLE public.receipt_sequence TO authenticated
 GRANT DELETE ON TABLE public.receipt_sequence TO service_role
 GRANT DELETE ON TABLE public.voucher_balance TO OWNER
 GRANT DELETE ON TABLE public.voucher_balance TO authenticated
 GRANT DELETE ON TABLE public.voucher_balance TO service_role
 GRANT DELETE ON TABLE public.voucher_series TO OWNER
-GRANT DELETE ON TABLE public.voucher_series TO authenticated
 GRANT DELETE ON TABLE public.voucher_series TO service_role
 GRANT EXECUTE ON FUNCTION private.assert_owner_consistency() TO OWNER
 GRANT EXECUTE ON FUNCTION public.close_cash_account(p_cash_account_id uuid, p_period_end date, p_counted_balance numeric, p_notes text, p_denominations jsonb, p_difference_reason text, p_counted_by text, p_verified_by text) TO OWNER
@@ -1100,7 +1097,6 @@ GRANT UPDATE ON TABLE public.cash_receipt_category TO service_role
 GRANT UPDATE ON TABLE public.cash_transfer TO OWNER
 GRANT UPDATE ON TABLE public.cash_transfer TO service_role
 GRANT UPDATE ON TABLE public.comprobante TO OWNER
-GRANT UPDATE ON TABLE public.comprobante TO authenticated
 GRANT UPDATE ON TABLE public.comprobante TO service_role
 GRANT UPDATE ON TABLE public.entidad TO OWNER
 GRANT UPDATE ON TABLE public.entidad TO authenticated
@@ -1118,13 +1114,11 @@ GRANT UPDATE ON TABLE public.payment_method TO service_role
 GRANT UPDATE ON TABLE public.petty_cash_vale TO OWNER
 GRANT UPDATE ON TABLE public.petty_cash_vale TO service_role
 GRANT UPDATE ON TABLE public.receipt_sequence TO OWNER
-GRANT UPDATE ON TABLE public.receipt_sequence TO authenticated
 GRANT UPDATE ON TABLE public.receipt_sequence TO service_role
 GRANT UPDATE ON TABLE public.voucher_balance TO OWNER
 GRANT UPDATE ON TABLE public.voucher_balance TO authenticated
 GRANT UPDATE ON TABLE public.voucher_balance TO service_role
 GRANT UPDATE ON TABLE public.voucher_series TO OWNER
-GRANT UPDATE ON TABLE public.voucher_series TO authenticated
 GRANT UPDATE ON TABLE public.voucher_series TO service_role
 GRANT UPDATE(public.payment.entity_id) ON TABLE public.payment TO authenticated
 GRANT UPDATE(public.payment.status) ON TABLE public.payment TO authenticated

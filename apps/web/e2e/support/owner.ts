@@ -311,6 +311,10 @@ export function deleteOwnerFixtures(ownerId: string): void {
 			// `app_setting` NO tiene FK a auth.users (migracion 20261006063301): borrar el usuario no
 			// la toca, asi que hay que nombrarla o la fila queda huerfana para siempre (L8).
 			`delete from public.app_setting where owner_id = ${id};`,
+			// `voucher_series` (slice 2, S3) SI tiene FK a `auth.users` con cascade, asi que borrar
+			// el usuario la alcanzaria. Se nombra igual, como el resto: el teardown borra cada tabla
+			// por `owner_id` y el conteo del teardown global (`COUNTED_TABLES`) delata la que falte.
+			`delete from public.voucher_series where owner_id = ${id};`,
 			`delete from auth.users where id = ${id};`,
 			"commit;",
 			"",

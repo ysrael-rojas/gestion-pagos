@@ -95,6 +95,13 @@ async function proxy(
     );
   }
 
+  // 204 (y 205/304) NO llevan cuerpo: el constructor de `Response` los rechaza si se le pasa uno,
+  // aunque sea la cadena vacia. `POST /series/:id/delete` responde 204 (S5), y sin esta rama la baja
+  // llegaba al usuario como "El API respondio 500" con la serie ya dada de baja en la base.
+  if (upstream.status === 204 || upstream.status === 205 || upstream.status === 304) {
+    return new Response(null, { status: upstream.status });
+  }
+
   // Se devuelve el cuerpo como texto, sin re-serializar: el mensaje de dominio del API tiene que
   // llegar al usuario sin que este puente lo toque.
   return new Response(await upstream.text(), {

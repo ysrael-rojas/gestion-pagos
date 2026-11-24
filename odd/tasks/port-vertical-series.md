@@ -169,9 +169,9 @@ en el mismo slice (L5):
 | T2 | S10, S6, S7 | inline: contratos en `packages/shared` (`voucherSeriesSchema`, opciones filtradas a S4) + tests | hecho (L6) |
 | T3 | S4, S5, S6 | worker: módulo `series` en `apps/api` (controller, service, mapa de errores) + e2e | pendiente |
 | T3b | S13 | worker: migración con las tres reglas que cierran los huecos de S2/S5, con sus tests | pendiente |
-| T4 | S8 | worker: pantalla `/configuracion/series` (tabla, modal, diálogo de borrado) + helpers puros con tests | pendiente |
-| T5 | S9, S11 | worker: ruta `/configuracion` → redirect, navbar, allowlist del BFF, preview de solo lectura en el formulario | pendiente |
-| T6 | S12 | parent: `specs/10-ventas` actualizado, `specs/11-series` nuevo, contadores de `.github/CI.md`, log y cierre | pendiente |
+| T4 | S8 | worker: pantalla `/configuracion/series` (tabla, modal, diálogo de borrado) + helpers puros con tests | hecho (L7) |
+| T5 | S9, S11 | worker: ruta `/configuracion` → redirect, navbar, allowlist del BFF, preview de solo lectura en el formulario | hecho (L7) |
+| T6 | S12 | parent: `specs/10-ventas` actualizado, `specs/11-series` nuevo, contadores de `.github/CI.md`, log y cierre | hecho (L8) |
 
 ## Log
 
@@ -218,3 +218,34 @@ asignado por serie deja un correlativo publicado bajo el tipo equivocado.
 `ISSUED_SERIES_VOUCHER_TYPES` derivado de `VOUCHER_TYPES` en lugar de una segunda lista;
 `serieFormSchema` pasa a aceptar solo los tres tipos que se emiten. Test
 `apps/web/lib/ventas/series-contrato.test.ts` 4/4, web **162/162**, `typecheck` 4/4.
+
+**L7** (evidencia, T4 y T5 cerradas): pantalla `/configuracion/series` con sus helpers puros
+(`apps/web/lib/configuracion/series.ts`, 13 casos), `/configuracion` como redirect, `Configuración`
+promovida de pendiente a real en el navbar, prefijo `series` en el BFF, y el número del formulario
+convertido en preview de solo lectura (`previewVoucherNumber`), con la lógica de "si el usuario lo
+editó, respetarlo" borrada porque ya no hay input. Web **181/181**, `typecheck` 0, build 20/20
+páginas con `/configuracion` y `/configuracion/series` en el árbol.
+
+Dos desvíos del plan, con razón: (a) las series se cargan en el cliente desde `VoucherFormView`, no
+en las páginas de venta, porque `lib/api/client.ts` no reenvía la cookie de sesión desde el servidor
+de Next y una lectura server-side daría 401 del `SessionGuard`; (b) el tipo de comprobante queda
+**deshabilitado al editar** además de rechazado por la base, porque ofrecer un cambio que la RPC
+contesta con 409 es una acción muerta.
+
+**L8** (evidencia, T6 cerrada y slice cerrado): `specs/10-ventas` reescrito (6 casos, incluidos
+"dos altas seguidas dan `-000001` y `-000002`" y "dueño sin series no puede registrar") y
+`specs/11-series` nuevo (4 casos), con las fixtures extendidas y `voucher_series` sumada al teardown
+y al baseline de conteos. `pnpm e2e` **32/32** en 11 specs (6m50s), teardown idéntico al baseline.
+
+El e2e encontró un defecto de producto que ninguna prueba de unidad podía ver:
+`apps/web/app/api/backend/[...path]/route.ts` armaba siempre `new Response(cuerpo, { status })`, y
+con un upstream **204** el runtime lanza `Invalid response status code 204`. La baja lógica de una
+serie borraba la fila y el usuario veía 500 y el toast de error. Se corrigió devolviendo sin cuerpo
+los estados 204/205/304 (7 líneas dentro de `proxy`, con la razón escrita al lado). Contadores de
+`.github/CI.md` actualizados: API 173→**194**, web 158→**181**, e2e 22 en 9 specs→**32 en 11 specs**,
+y fila `11-series` en el catálogo.
+
+Queda fuera de este slice, anotado: notas de crédito/débito, retenciones, compras, y un 404 de Next
+para un `id` que no es uuid (hoy el detalle pinta el mensaje del API). Publicar la rama (push/PR) es
+decisión del humano: los commits están en `feat/vertical-ventas-series`, stackeada sobre
+`feat/vertical-ventas` (PR #24).

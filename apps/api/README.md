@@ -8,7 +8,7 @@ el contrato Zod de `@gestion/shared` como borde de validacion (T4).
 | script      | que hace                                                       |
 | ----------- | -------------------------------------------------------------- |
 | `build`     | bundle de `src/main.ts` a `dist/main.js` con esbuild            |
-| `dev`       | el mismo build en modo watch (tarea `dev` de turbo)            |
+| `dev`       | build en watch **y** servidor, reiniciado en cada recompilación |
 | `start`     | `node dist/main.js`                                            |
 | `typecheck` | `tsc --noEmit` (incluye `test/`)                               |
 | `test`      | `node --test` sobre `test/**/*.test.ts`                         |

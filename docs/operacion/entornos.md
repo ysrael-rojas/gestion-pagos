@@ -177,9 +177,10 @@ pnpm --filter @gestion/api build && pnpm --filter @gestion/api start   # :3001
 pnpm --filter @gestion/web dev                                        # :3000
 ```
 
-`pnpm --filter @gestion/api dev` es el build en modo watch: recompila a `dist/`, no arranca el
-servidor. `pnpm dev` (turbo) corre esa tarea y el `next dev`, así que **el proceso del API hay que
-levantarlo aparte**, como en el paso 6.
+`pnpm --filter @gestion/api dev` compila y **arranca** el servidor, y lo reinicia en cada cambio de
+`src/` (un build con errores no lo tumba: sigue con la última versión buena). `pnpm dev` (turbo)
+corre esa tarea y el `next dev`, así que **levanta los dos procesos**, sin abrir una segunda
+terminal.
 
 ## Detalles que muerden
 

@@ -1277,7 +1277,7 @@ try {
 	//    nombra las siete, con la forma exacta del estado al que se converge.
 	// -----------------------------------------------------------------------
 	try {
-		const name = "M) authenticated no conserva UPDATE ni DELETE en las tablas RPC-only de cajas y bancos";
+		const name = "M) authenticated no conserva UPDATE ni DELETE en las tablas RPC-only (cajas-bancos y pagos)";
 		const tables = [
 			"bank_reconciliation",
 			"bank_reconciliation_item",
@@ -1285,7 +1285,10 @@ try {
 			"cash_count",
 			"cash_count_denomination",
 			"cash_transfer",
+			"comprobante",
 			"petty_cash_vale",
+			"receipt_sequence",
+			"voucher_series",
 		];
 		const problems = [];
 
@@ -1305,7 +1308,7 @@ try {
 
 		if (rows.length !== tables.length) {
 			problems.push(
-				`el catalogo devolvio ${rows.length} de ${tables.length} tabla(s) de cajas y bancos`,
+				`el catalogo devolvio ${rows.length} de ${tables.length} tabla(s) RPC-only`,
 			);
 		}
 		for (const row of rows) {

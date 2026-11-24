@@ -2,7 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022"],
-    "noEmit": true
+    "noEmit": true,
+    // Los tests de `packages/shared` corren con el runner de Node (desde
+    // `apps/web`, que no tiene runner propio) y el runner no resuelve imports
+    // relativos sin extensión: los schemas importan con `.ts` (ver
+    // `odd/tasks/port-vertical-ventas.md`, T1).
+    "allowImportingTsExtensions": true
   },
   "include": ["src/**/*.ts"]
 }

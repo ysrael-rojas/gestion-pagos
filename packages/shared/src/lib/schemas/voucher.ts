@@ -9,7 +9,7 @@ import {
   PAYMENT_TYPES,
   SALE_STATUSES,
   VOUCHER_TYPES,
-} from "../data/sale-options";
+} from "../data/sale-options.ts";
 
 /**
  * Serie + correlativo del comprobante (SUNAT): hasta 4 caracteres alfanuméricos de
@@ -85,7 +85,17 @@ export const voucherFormSchema = z
         message: "Ingresa los días de crédito",
       });
     }
-  });
+  })
+  /**
+   * Los días de crédito existen **solo** en `CREDITO`; en `CONTADO` van como
+   * `null` aunque el formulario mande el valor viejo (arranca en 30 al elegir
+   * Crédito). El CHECK `comprobante_credit_days` de la base ya lo exige, así que
+   * limpiarlo acá evita el 400 genérico de la base. Ver S3.
+   */
+  .transform((values) => ({
+    ...values,
+    creditDays: values.paymentType === "CREDITO" ? (values.creditDays ?? null) : null,
+  }));
 
 export type VoucherFormValues = z.output<typeof voucherFormSchema>;
 export type VoucherFormInput = z.input<typeof voucherFormSchema>;

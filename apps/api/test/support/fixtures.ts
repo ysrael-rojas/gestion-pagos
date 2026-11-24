@@ -126,17 +126,31 @@ export async function signIn(auth: Auth, email: string, password: string): Promi
  * Por eso `apps/api` corre sus tests con `--test-concurrency=1`: es la contencion correcta mientras
  * el actor siga siendo compartido. Si algun dia cada spec levanta su propio dueno con datos
  * sembrados, la bandera se puede sacar.
+ *
+ * IDEMPOTENTE: si el dueno demo ya tiene una credencial, se le actualiza la clave en la MISMA fila.
+ * Antes insertaba siempre una nueva, asi que una credencial preexistente —la de cualquiera que
+ * levantaba la app para mirarla— dejaba dos filas para el mismo email, Better Auth tomaba la
+ * equivocada y `signIn` fallaba con "Invalid password". El sintoma parecia un bug de producto y era
+ * el fixture peleando con el entorno.
  */
 export async function grantDemoCredential(pool: Pool, ownerId: string): Promise<string> {
 	const email = await demoOwnerEmail(pool, ownerId);
-	const accountId = randomUUID();
-	const password = TEST_PASSWORD;
-	const hashed = await hashPassword(password);
+	const hashed = await hashPassword(TEST_PASSWORD);
 
 	await pool.query(
 		`insert into auth.account (id, account_id, provider_id, user_id, password, created_at, updated_at)
 		 values ($1, $2, 'credential', $3, $4, now(), now())`,
-		[accountId, ownerId, ownerId, hashed],
+		[randomUUID(), ownerId, ownerId, hashed],
+	);
+
+	// La credencial puede venir de antes (con otro `id`): se converge a UNA sola fila para ese dueno.
+	await pool.query(
+		`delete from auth.account
+		  where user_id = $1 and provider_id = 'credential'
+		    and id <> (select id from auth.account
+		                where user_id = $1 and provider_id = 'credential'
+		                order by updated_at desc limit 1)`,
+		[ownerId],
 	);
 
 	return email;

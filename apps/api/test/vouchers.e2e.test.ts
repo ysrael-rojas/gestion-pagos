@@ -1,0 +1,551 @@
+// e2e del modulo `vouchers` de `apps/api` (T3 del port del vertical ventas, S5/S6/S9 de
+// `odd/tasks/port-vertical-ventas.md`) contra una base viva con las migraciones y los seeds
+// aplicados.
+//
+// Que prueba, en una frase: que el alta, la edicion, el listado y el detalle de un comprobante de
+// VENTA pasan por el camino real (HTTP -> Better Auth -> withOwner -> RPC/RLS), que el dueno sale
+// de la sesion y nunca del payload, y que los mensajes de S6 llegan al cliente con su status.
+//
+// Precondiciones de entorno (no se leen de ningun archivo del repo):
+//   DATABASE_URL         la base migrada y sembrada (`packages/db/scripts/apply-sql.mjs` +
+//                        `apply-seeds.mjs`).
+//   BETTER_AUTH_SECRET   firma de las cookies de sesion; si falta se genera uno efimero.
+//
+// Identidad: los dos duenos de este archivo se crean por SQL (`createSecondOwner`), igual que el
+// procedimiento documentado en `docs/operacion/crear-usuario.md`: el alta publica esta cerrada
+// desde L77, asi que `signUpEmail` no es una via disponible ni para los tests. La ENTRADA si es la
+// real (`signInEmail`), y el GUC `app.user_id` lo sigue fijando `withOwner` a partir de la sesion.
+//
+// Los comprobantes de fixture se insertan por SQL como `dev_user` cuando el caso necesita un
+// estado que el API no puede producir (un comprobante con pagos), y se crean por la ruta HTTP
+// cuando el caso es del alta. El teardown borra todo en orden de FK.
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { after, before, test } from "node:test";
+import type { Pool } from "pg";
+import { getTodayLocalDate } from "../../../packages/shared/src/lib/utils.ts";
+import type { ApiHarness } from "./support/harness.ts";
+import {
+	type AccountIds,
+	type OwnerSession,
+	createSecondOwner,
+	deleteOwnerFixtures,
+	insertPayment,
+	insertVoucher,
+	seedSecondOwnerDomain,
+} from "./support/fixtures.ts";
+import { loadApiHarness, removeApiHarnessBundle } from "./support/harness-loader.ts";
+
+/** Textos de S6, verbatim: el test los compara contra lo que responde el API. */
+const CLIENTE_INEXISTENTE = "El cliente seleccionado no existe.";
+const VENTA_DUPLICADA = "Ya registraste una venta con ese número de comprobante.";
+const SALDO_INALCANZABLE = "No se pudo cargar el saldo de los comprobantes.";
+const COMPROBANTE_CON_PAGOS =
+	"No se puede modificar un comprobante con pagos registrados: anula los pagos antes de cambiar importe, numero, cliente o fecha";
+/** Texto de la RPC `editar_venta`, que T3 mapea a 404 (ver L10 del doc de la feature). */
+const COMPROBANTE_INEXISTENTE = "El comprobante no existe.";
+
+/** Mensaje del pipe de Zod cuando el body no cumple `voucherFormSchema` (S11). */
+const PAYLOAD_INVALIDO = "El payload no cumple el contrato compartido.";
+
+const SOME_UUID = "11111111-1111-4111-8111-111111111111";
+
+let harness: ApiHarness;
+let pool: Pool;
+let first: OwnerSession;
+let firstIds: AccountIds;
+let firstEntityName: string;
+/** Comprobante del dueno 1 con 200 ya asignados de un total de 500 (saldo abierto 300). */
+let paidVoucherId: string;
+let second: OwnerSession;
+/** Comprobante del dueno 2: el dueno 1 no debe verlo ni poder editarlo. */
+let secondVoucherId: string;
+let secondVoucherNumber: string;
+
+interface ApiResult {
+	status: number;
+	// biome-ignore lint/suspicious/noExplicitAny: el cuerpo varia por endpoint en las aserciones.
+	body: any;
+}
+
+async function call(
+	method: string,
+	path: string,
+	options: { cookie?: string; body?: unknown } = {},
+): Promise<ApiResult> {
+	const headers: Record<string, string> = {};
+
+	if (options.cookie) headers.cookie = options.cookie;
+	if (options.body !== undefined) headers["content-type"] = "application/json";
+
+	const response = await fetch(`${harness.url}${path}`, {
+		method,
+		headers,
+		body: options.body === undefined ? undefined : JSON.stringify(options.body),
+	});
+	const text = await response.text();
+
+	return { status: response.status, body: text ? JSON.parse(text) : null };
+}
+
+/** Payload minimo valido de `voucherFormSchema`; cada caso cambia solo lo que mira. */
+function voucherBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+	return {
+		issueDate: "2026-03-15",
+		voucherType: "FACTURA",
+		voucherNumber: "F003-000001",
+		entityId: firstIds.entityId,
+		total: 118,
+		paymentType: "CONTADO",
+		status: "PENDIENTE",
+		...overrides,
+	};
+}
+
+/** Alta por la ruta real; falla fuerte si no fue 201 (el caso de alta tiene sus propias pruebas). */
+// biome-ignore lint/suspicious/noExplicitAny: el alta devuelve el detalle del comprobante.
+async function createVoucher(body: Record<string, unknown>): Promise<any> {
+	const result = await call("POST", "/vouchers", { cookie: first.cookie, body });
+
+	assert.equal(result.status, 201, `el alta deberia responder 201: ${JSON.stringify(result.body)}`);
+
+	return result.body;
+}
+
+/** Todos los casos de alta comparten la necesidad de un numero: este los hace unicos. */
+let correlativo = 100;
+function nextNumber(serie = "F003"): string {
+	correlativo += 1;
+
+	return `${serie}-${String(correlativo).padStart(6, "0")}`;
+}
+
+/** Las cuatro rutas del vertical, con entradas validas, para el barrido de 401. */
+const ROUTES: Array<{ method: string; path: string; body?: unknown }> = [
+	{ method: "GET", path: "/vouchers" },
+	{ method: "GET", path: `/vouchers/${SOME_UUID}` },
+	{ method: "POST", path: "/vouchers", body: {} },
+	{ method: "PATCH", path: `/vouchers/${SOME_UUID}`, body: {} },
+];
+
+before(async () => {
+	if (!process.env.DATABASE_URL?.trim()) {
+		throw new Error(
+			"Falta DATABASE_URL: los e2e del vertical de ventas corren contra la base sembrada (no hay valor por defecto).",
+		);
+	}
+
+	// Secretos efimeros si el entorno no los trae: no se escriben en ningun archivo.
+	process.env.BETTER_AUTH_SECRET ??= "e2e-ventas-secret-no-persistido";
+	process.env.BETTER_AUTH_URL ??= "http://127.0.0.1:3001";
+
+	const module = await loadApiHarness();
+	harness = await module.startApi();
+	pool = harness.pool;
+
+	first = await createSecondOwner(pool, harness.auth);
+	const domain = await seedSecondOwnerDomain(pool, first.ownerId);
+	firstIds = domain.ids;
+
+	const entity = await pool.query<{ name: string }>("select name from public.entidad where id = $1", [
+		firstIds.entityId,
+	]);
+	firstEntityName = entity.rows[0]?.name ?? "";
+
+	// Serie F001 de FACTURA del dueno 1: el avance del correlativo (S7) la necesita con un
+	// `last_number` que el test controle. Los seeds no traen series (el control los declara en
+	// `null`), asi que se siembra aca y `auth.users` la arrastra en el teardown.
+	await pool.query(
+		`insert into public.voucher_series (owner_id, voucher_type, code, last_number, is_default)
+		 values ($1, 'FACTURA', 'F001', 3, true)`,
+		[first.ownerId],
+	);
+
+	// Comprobante con pagos (el trigger `comprobante_protect_paid` bloquea importe, numero,
+	// cliente y fecha) y con saldo abierto: el numero respeta el patron de S7 a proposito, para
+	// que el caso llegue al trigger y no muera antes en la validacion del schema.
+	paidVoucherId = await insertVoucher(pool, {
+		ownerId: first.ownerId,
+		entityId: firstIds.entityId,
+		total: 500,
+		voucherNumber: "F002-000001",
+	});
+	await insertPayment(pool, {
+		ownerId: first.ownerId,
+		ids: firstIds,
+		amount: 200,
+		allocation: { comprobanteId: paidVoucherId, amount: 200 },
+	});
+
+	second = await createSecondOwner(pool, harness.auth);
+	const secondEntityId = randomUUID();
+	const tag = second.ownerId.slice(0, 8);
+
+	await pool.query(
+		`insert into public.entidad (id, document_type, document_number, name, billing_email, is_client, owner_id)
+		 values ($1, 'SIN_DOCUMENTO', '', $2, $3, true, $4)`,
+		[secondEntityId, `E2E ajeno ${tag}`, `e2e-ajeno-${tag}@example.test`, second.ownerId],
+	);
+
+	secondVoucherNumber = "F009-000001";
+	secondVoucherId = await insertVoucher(pool, {
+		ownerId: second.ownerId,
+		entityId: secondEntityId,
+		total: 900,
+		voucherNumber: secondVoucherNumber,
+	});
+});
+
+after(async () => {
+	if (pool && second) {
+		await deleteOwnerFixtures(pool, second.ownerId);
+	}
+
+	if (pool && first) {
+		await deleteOwnerFixtures(pool, first.ownerId);
+	}
+
+	if (harness) {
+		await harness.close();
+	}
+
+	removeApiHarnessBundle();
+});
+
+test("sin sesion las cuatro rutas responden 401 antes de validar el payload", async () => {
+	for (const route of ROUTES) {
+		const result = await call(route.method, route.path, { body: route.body });
+
+		assert.equal(
+			result.status,
+			401,
+			`${route.method} ${route.path} deberia responder 401 sin sesion, respondio ${result.status}`,
+		);
+		assert.equal(result.body?.message, "Sesion requerida.");
+	}
+
+	// La sesion se resuelve ANTES del pipe de Zod: un body invalido sin sesion sigue siendo 401.
+	const invalidBody = await call("POST", "/vouchers", { body: { voucherNumber: "" } });
+
+	assert.equal(invalidBody.status, 401);
+
+	// Y una cookie inventada tampoco abre nada.
+	const forged = await call("GET", "/vouchers", { cookie: "better-auth.session_token=forged.sig" });
+
+	assert.equal(forged.status, 401);
+});
+
+test("GET /vouchers/open sigue siendo la ruta de cartera y no el detalle de un comprobante", async () => {
+	// `vouchers` ya estaba en la allowlist del BFF y `GET /vouchers/open` es la ruta de la
+	// cartera (`CarteraController`). El modulo nuevo registra `GET /vouchers/:id`, asi que el
+	// orden de registro de los modulos decide quien atiende "open": si el vertical de ventas
+	// ganara, este request responderia 400 (un uuid invalido) o 404. Es la regresion que se pina.
+	const result = await call("GET", "/vouchers/open?direction=INGRESO", { cookie: first.cookie });
+
+	assert.equal(result.status, 200);
+	assert.ok(Array.isArray(result.body), "la cartera devuelve un array de saldos");
+	assert.ok(result.body.length > 0, "el dueno 1 tiene comprobantes con saldo abierto");
+	// Columna de `voucher_balance`, no del detalle del vertical de ventas (`id`).
+	assert.ok("comprobanteId" in result.body[0], "la fila tiene que ser la de `voucher_balance`");
+	assert.equal("id" in result.body[0], false);
+});
+
+test("POST /vouchers da de alta la venta y avanza el correlativo de su serie", async () => {
+	// Sin `issueDate` en el body: el API tiene que usar el "hoy" del NEGOCIO (S9), no el reloj del
+	// proceso ni `toISOString()`.
+	const body = voucherBody({
+		voucherType: "FACTURA",
+		voucherNumber: "F001-000007",
+		total: 118,
+	});
+
+	delete body.issueDate;
+
+	const result = await call("POST", "/vouchers", { cookie: first.cookie, body });
+
+	assert.equal(result.status, 201, JSON.stringify(result.body));
+
+	// S2: los montos se derivan del total con el 18 % y cierre al centavo.
+	assert.equal(result.body.subtotal, 100);
+	assert.equal(result.body.igv, 18);
+	assert.equal(result.body.total, 118);
+
+	// S9: el default de emision es el de la zona del negocio.
+	assert.equal(result.body.issueDate, getTodayLocalDate());
+	assert.match(
+		String(result.body.registrationDate),
+		/^\d{4}-\d{2}-\d{2}$/,
+		"registrationDate es una fecha ISO corta (columna con default `current_date`)",
+	);
+
+	// S3: CONTADO no lleva dias de credito y `due_date` (columna generada) queda en null.
+	assert.equal(result.body.creditDays, null);
+	assert.equal(result.body.dueDate, null);
+
+	assert.equal(result.body.voucherNumber, "F001-000007");
+	assert.equal(result.body.voucherType, "FACTURA");
+	assert.equal(result.body.entityId, firstIds.entityId);
+	assert.equal(result.body.entityName, firstEntityName);
+	assert.equal(result.body.status, "PENDIENTE");
+	assert.equal(result.body.paidAmount, 0);
+	assert.equal(result.body.balance, 118);
+
+	// S7: el correlativo escrito supera `last_number` (3), asi que la serie avanza a 7.
+	const series = await pool.query<{ last_number: number }>(
+		`select last_number from public.voucher_series
+		  where owner_id = $1 and voucher_type = 'FACTURA' and code = 'F001'`,
+		[first.ownerId],
+	);
+
+	assert.equal(series.rows[0]?.last_number, 7);
+
+	// S7: el avance es MONOTONO. Un correlativo menor se registra igual (la unicidad la da el
+	// indice, no la serie) y no hace retroceder `last_number`.
+	const lower = await call("POST", "/vouchers", {
+		cookie: first.cookie,
+		body: voucherBody({ voucherType: "FACTURA", voucherNumber: "F001-000002", total: 59 }),
+	});
+
+	assert.equal(lower.status, 201, JSON.stringify(lower.body));
+
+	const afterLower = await pool.query<{ last_number: number }>(
+		`select last_number from public.voucher_series
+		  where owner_id = $1 and voucher_type = 'FACTURA' and code = 'F001'`,
+		[first.ownerId],
+	);
+
+	assert.equal(afterLower.rows[0]?.last_number, 7);
+});
+
+test("GET /vouchers lista las ventas del dueno de la sesion y ninguna ajena", async () => {
+	const result = await call("GET", "/vouchers", { cookie: first.cookie });
+
+	assert.equal(result.status, 200);
+	assert.ok(Array.isArray(result.body), "el listado debe ser un array");
+
+	const expected = await pool.query<{ n: number }>(
+		`select count(*)::int as n from public.comprobante
+		  where owner_id = $1 and voucher_kind = 'VENTA' and deleted_at is null`,
+		[first.ownerId],
+	);
+
+	assert.equal(result.body.length, expected.rows[0]?.n);
+	assert.ok(result.body.length > 0, "el dueno 1 tiene comprobantes");
+
+	// La fila ajena y las columnas del listado.
+	assert.equal(
+		result.body.some((row: { voucherNumber: string }) => row.voucherNumber === secondVoucherNumber),
+		false,
+		"el listado no puede traer comprobantes de otro dueno",
+	);
+
+	// Orden: emision descendente (el contrato de la pantalla de ventas).
+	const dates = result.body.map((row: { issueDate: string }) => row.issueDate);
+	const sorted = [...dates].sort().reverse();
+
+	assert.deepEqual(dates, sorted);
+});
+
+test("GET /vouchers/:id devuelve el comprobante con su saldo", async () => {
+	const result = await call("GET", `/vouchers/${paidVoucherId}`, { cookie: first.cookie });
+
+	assert.equal(result.status, 200, JSON.stringify(result.body));
+	assert.equal(result.body.id, paidVoucherId);
+	assert.equal(result.body.voucherNumber, "F002-000001");
+	assert.equal(result.body.entityName, firstEntityName);
+	assert.equal(result.body.total, 500);
+	// El saldo es el de `voucher_balance`, que es el que muestra el origen: 500 - 200 asignados.
+	assert.equal(result.body.paidAmount, 200);
+	assert.equal(result.body.balance, 300);
+	assert.equal(result.body.status, "PENDIENTE");
+
+	// Un comprobante de otro dueno no existe para esta sesion (la RLS lo hace invisible y el
+	// mensaje es el mismo que el de un id inventado).
+	const foreign = await call("GET", `/vouchers/${secondVoucherId}`, { cookie: first.cookie });
+
+	assert.equal(foreign.status, 404);
+	assert.equal(foreign.body?.message, COMPROBANTE_INEXISTENTE);
+
+	const invented = await call("GET", `/vouchers/${randomUUID()}`, { cookie: first.cookie });
+
+	assert.equal(invented.status, 404);
+	assert.equal(invented.body?.message, COMPROBANTE_INEXISTENTE);
+});
+
+test("PATCH /vouchers/:id edita la venta y recalcula el vencimiento de CREDITO", async () => {
+	const created = await createVoucher(
+		voucherBody({ voucherNumber: nextNumber("F004"), total: 236 }),
+	);
+
+	// Edicion completa (el contrato es el mismo `voucherFormSchema` del formulario) a CREDITO.
+	const result = await call("PATCH", `/vouchers/${created.id}`, {
+		cookie: first.cookie,
+		body: voucherBody({
+			voucherNumber: nextNumber("F004"),
+			voucherType: "BOLETA",
+			issueDate: "2026-03-10",
+			total: 590,
+			paymentType: "CREDITO",
+			creditDays: 15,
+		}),
+	});
+
+	assert.equal(result.status, 200, JSON.stringify(result.body));
+	assert.equal(result.body.id, created.id);
+	assert.equal(result.body.voucherType, "BOLETA");
+	assert.equal(result.body.issueDate, "2026-03-10");
+	assert.equal(result.body.subtotal, 500);
+	assert.equal(result.body.igv, 90);
+	assert.equal(result.body.total, 590);
+	assert.equal(result.body.paymentType, "CREDITO");
+	assert.equal(result.body.creditDays, 15);
+	// `due_date` es columna generada: la escribe la base (issue_date + credit_days), nunca el API.
+	assert.equal(result.body.dueDate, "2026-03-25");
+	assert.equal(result.body.balance, 590);
+});
+
+test("PATCH /vouchers/:id responde 409 con el mensaje de duplicado de S6", async () => {
+	const created = await createVoucher(
+		voucherBody({ voucherNumber: nextNumber("F005"), total: 118 }),
+	);
+	const existing = await call("GET", `/vouchers/${paidVoucherId}`, { cookie: first.cookie });
+	const takenNumber = existing.body.voucherNumber;
+
+	const result = await call("PATCH", `/vouchers/${created.id}`, {
+		cookie: first.cookie,
+		body: voucherBody({ voucherNumber: takenNumber, total: 118 }),
+	});
+
+	assert.equal(result.status, 409, JSON.stringify(result.body));
+	assert.equal(result.body?.message, VENTA_DUPLICADA);
+
+	// La fila no quedo a medias: el numero sigue siendo el de antes.
+	const unchanged = await call("GET", `/vouchers/${created.id}`, { cookie: first.cookie });
+
+	assert.equal(unchanged.body.voucherNumber, created.voucherNumber);
+});
+
+test("PATCH /vouchers/:id rechaza un comprobante con pagos con el mensaje del trigger", async () => {
+	// Cambiar el importe de un comprobante con pagos no anulados lo bloquea el trigger
+	// `comprobante_protect_paid`, y la RPC no lo puede saltar (S6/S8): el texto llega tal cual.
+	const result = await call("PATCH", `/vouchers/${paidVoucherId}`, {
+		cookie: first.cookie,
+		body: voucherBody({
+			voucherNumber: "F002-000001",
+			total: 900,
+		}),
+	});
+
+	assert.equal(result.status, 409, JSON.stringify(result.body));
+	assert.equal(result.body?.message, COMPROBANTE_CON_PAGOS);
+
+	// Nada cambio: el importe y el saldo siguen siendo los de antes.
+	const unchanged = await call("GET", `/vouchers/${paidVoucherId}`, { cookie: first.cookie });
+
+	assert.equal(unchanged.body.total, 500);
+	assert.equal(unchanged.body.balance, 300);
+});
+
+test("POST /vouchers guarda CONTADO sin dias aunque el body los mande (S3)", async () => {
+	// El formulario arranca con 30 al elegir Credito y puede quedar el valor viejo al volver a
+	// Contado. `voucherFormSchema` lo limpia antes de la base (S3) y el CHECK
+	// `comprobante_credit_days` nunca se viola: si no fuera asi, este caso responderia 400.
+	const result = await call("POST", "/vouchers", {
+		cookie: first.cookie,
+		body: voucherBody({
+			voucherNumber: nextNumber("F006"),
+			total: 100,
+			paymentType: "CONTADO",
+			creditDays: 30,
+		}),
+	});
+
+	assert.equal(result.status, 201, JSON.stringify(result.body));
+	assert.equal(result.body.creditDays, null);
+	assert.equal(result.body.dueDate, null);
+
+	const stored = await pool.query<{ credit_days: number | null; due_date: string | null }>(
+		"select credit_days, due_date from public.comprobante where id = $1",
+		[result.body.id],
+	);
+
+	assert.equal(stored.rows[0]?.credit_days, null);
+	assert.equal(stored.rows[0]?.due_date, null);
+});
+
+test("el estado lo deriva la base: el `status` del formulario no se escribe", async () => {
+	// L8 del doc de la feature: el `status` del formulario es editable en el origen pero quien lo
+	// calcula es `private.refresh_comprobante_status` al asignar o anular pagos. La tabla arranca en
+	// PENDIENTE y el API no pisa esa columna.
+	const result = await call("POST", "/vouchers", {
+		cookie: first.cookie,
+		body: voucherBody({ voucherNumber: nextNumber("F007"), total: 118, status: "PAGADO" }),
+	});
+
+	assert.equal(result.status, 201, JSON.stringify(result.body));
+	assert.equal(result.body.status, "PENDIENTE");
+});
+
+test("PATCH y POST responden 404 con `El comprobante no existe.` cuando el id no es una venta del dueno", async () => {
+	const invented = await call("PATCH", `/vouchers/${randomUUID()}`, {
+		cookie: first.cookie,
+		body: voucherBody({ voucherNumber: nextNumber("F008") }),
+	});
+
+	assert.equal(invented.status, 404, JSON.stringify(invented.body));
+	assert.equal(invented.body?.message, COMPROBANTE_INEXISTENTE);
+
+	// El comprobante de otro dueno responde lo mismo: no se filtra su existencia.
+	const foreign = await call("PATCH", `/vouchers/${secondVoucherId}`, {
+		cookie: first.cookie,
+		body: voucherBody({ voucherNumber: nextNumber("F008") }),
+	});
+
+	assert.equal(foreign.status, 404, JSON.stringify(foreign.body));
+	assert.equal(foreign.body?.message, COMPROBANTE_INEXISTENTE);
+});
+
+test("POST /vouchers responde 404 con `El cliente seleccionado no existe.`", async () => {
+	const result = await call("POST", "/vouchers", {
+		cookie: first.cookie,
+		body: voucherBody({ voucherNumber: nextNumber("F009"), entityId: randomUUID() }),
+	});
+
+	assert.equal(result.status, 404, JSON.stringify(result.body));
+	assert.equal(result.body?.message, CLIENTE_INEXISTENTE);
+});
+
+test("POST /vouchers rechaza el body con los mensajes del contrato compartido (S4/S11)", async () => {
+	// El `issues` sale del MISMO `voucherFormSchema` que valida el formulario: si el API tuviera un
+	// DTO propio, el texto (y el contrato) serian otros.
+	const badNumber = await call("POST", "/vouchers", {
+		cookie: first.cookie,
+		body: voucherBody({ voucherNumber: "F001" }),
+	});
+
+	assert.equal(badNumber.status, 400);
+	assert.equal(badNumber.body?.message, PAYLOAD_INVALIDO);
+	assert.equal(badNumber.body?.issues?.[0]?.message, "Usa el formato serie-correlativo, por ejemplo F001-000001");
+
+	// `""` no es "sin fecha": la fecha de emision vacia sigue siendo el mensaje de S4.
+	const emptyDate = await call("POST", "/vouchers", {
+		cookie: first.cookie,
+		body: voucherBody({ issueDate: "" }),
+	});
+
+	assert.equal(emptyDate.status, 400);
+	assert.equal(emptyDate.body?.issues?.[0]?.message, "La fecha de emisión es requerida");
+});
+
+test("S6: el mensaje del saldo no se confunde con el generico de la base", async () => {
+	// `No se pudo cargar el saldo de los comprobantes.` existe porque el origen leia
+	// `voucher_balance` en su propia consulta: si esa lectura falla, el cliente tiene que ver ese
+	// texto y no el generico. La rama se prueba en `vouchers.errors.test.ts` (romper la vista aca
+	// exigiria mutar el esquema); este caso pina que el detalle normal si trae saldo.
+	const result = await call("GET", `/vouchers/${paidVoucherId}`, { cookie: first.cookie });
+
+	assert.equal(result.status, 200);
+	assert.equal(typeof result.body.paidAmount, "number");
+	assert.equal(typeof result.body.balance, "number");
+	assert.notEqual(result.body.message, SALDO_INALCANZABLE);
+});

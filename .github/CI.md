@@ -23,7 +23,7 @@ Tres jobs en paralelo, cada uno con su propio `postgres:18` de servicio (virgen)
 | 5 | migraciones (la API las necesita) | `pnpm --filter @gestion/db db:verify` |
 | 6 | seeds en el orden de S20 | `pnpm --filter @gestion/db db:seed` |
 | 7 | tipos de los 4 paquetes | `pnpm typecheck` (turbo) |
-| 8 | tests | `pnpm test` (turbo; `@gestion/api` 135, con `--test-concurrency=1` porque sus e2e comparten el dueño demo y su credencial; `@gestion/web` 106) |
+| 8 | tests | `pnpm test` (turbo; `@gestion/api` 173, con `--test-concurrency=1` porque sus e2e comparten el dueño demo y su credencial; `@gestion/web` 158) |
 | 9 | build de todos los paquetes | `pnpm build` (turbo) |
 | 10 | **build frio de la web** | `rm -rf apps/web/.next && pnpm --filter @gestion/web build` |
 
@@ -288,6 +288,7 @@ build viejo es peor que no tener e2e.
 | `07-sign-out` | cerrar sesion revoca la sesion (`auth.session` vuelve a 0) y las rutas protegidas vuelven a `/login` |
 | `08-clientes` | el maestro de clientes: listado vacio, alta por el formulario, documento duplicado rechazado con el mensaje del API, edicion y baja logica |
 | `09-cajas-bancos` | el vertical de cajas-bancos de punta a punta: el dashboard como raiz del vertical, el alta de una cuenta bancaria por el formulario con su saldo calculado en la base, una transferencia entre cuentas que aparece en extractos, un vale de caja chica que se crea y se anula dejando su recibo anulado, una conciliacion guardada con su acta renderizada, y el interruptor de una categoria en configuracion |
+| `10-ventas` | el vertical de ventas de punta a punta: el listado con sus columnas, filtros y `Registrar pago` solo en un comprobante pendiente, el alta por el formulario, el detalle con su saldo y la edicion de un comprobante con pagos (aviso de S5 y los cuatro campos protegidos deshabilitados) |
 
 ### Determinismo
 

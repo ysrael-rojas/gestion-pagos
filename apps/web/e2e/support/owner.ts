@@ -35,7 +35,11 @@ import { psqlLines, psqlValue, sqlText } from "./psql";
  * pasar desapercibido en un CI que corre a cualquier hora.
  */
 const APP_TIME_ZONE = "America/Lima";
-const APP_TODAY = `(now() at time zone '${APP_TIME_ZONE}')::date`;
+/**
+ * "Hoy" en la zona del negocio, como expresion SQL. Lo comparten las fixtures de este archivo y
+ * las del vertical de ventas (`ventas-fixtures.ts`), que siembran comprobantes del mismo dia.
+ */
+export const APP_TODAY = `(now() at time zone '${APP_TIME_ZONE}')::date`;
 
 /** Dueno desechable de un spec. `password` vive solo en memoria del test. */
 export interface Owner {

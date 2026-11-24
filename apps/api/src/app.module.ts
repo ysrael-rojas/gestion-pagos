@@ -6,11 +6,17 @@ import { DatabaseModule } from "./db/db.module";
 import { EntitiesModule } from "./entities/entities.module";
 import { HealthModule } from "./health/health.module";
 import { PaymentsModule } from "./payments/payments.module";
+import { VouchersModule } from "./vouchers/vouchers.module";
 
 /**
  * `DatabaseModule` es global: expone el handle de Drizzle (y el pool) a todos los modulos.
- * `AuthModule`, `PaymentsModule`, `EntitiesModule` y `CashModule` tocan la base; `ContractModule`
- * es el smoke del pipe de validacion y `HealthModule` no toca nada.
+ * `AuthModule`, `PaymentsModule`, `EntitiesModule`, `CashModule` y `VouchersModule` tocan la base;
+ * `ContractModule` es el smoke del pipe de validacion y `HealthModule` no toca nada.
+ *
+ * `VouchersModule` va DESPUES de `PaymentsModule` a proposito: los dos publican rutas bajo
+ * `/vouchers` (`GET /vouchers/open` es la cartera y `GET /vouchers/:id` el detalle de una venta) y
+ * Express resuelve por orden de registro. Invertir el orden convierte la ruta de la cartera en un
+ * 400 del parametro uuid; lo pina `apps/api/test/vouchers.e2e.test.ts`.
  */
 @Module({
 	imports: [
@@ -19,6 +25,7 @@ import { PaymentsModule } from "./payments/payments.module";
 		PaymentsModule,
 		EntitiesModule,
 		CashModule,
+		VouchersModule,
 		ContractModule,
 		HealthModule,
 	],

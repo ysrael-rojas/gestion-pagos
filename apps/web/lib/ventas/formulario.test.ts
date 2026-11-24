@@ -5,11 +5,11 @@
 //   1. El default de la fecha de emision sale de `getTodayLocalDate()` (S9: el "hoy" del NEGOCIO,
 //      `America/Lima`), nunca de `toISOString()` ni del reloj del proceso.
 //   2. Dias de credito (S3): al elegir Credito arranca en 30 y al volver a Contado se limpia.
-//   3. El body del POST/PATCH. Aca hay una TRAMPA del port: el OUTPUT de `voucherFormSchema`
-//      (`creditDays: null` en CONTADO) NO es un INPUT valido del mismo schema, porque
-//      `z.coerce.number(null)` da 0 y falla `min(1)`. El API revalida el body con ese schema, asi
-//      que un comprobante de CONTADO enviado tal cual volveria 400 con "Los días de crédito deben
-//      ser al menos 1". `toVoucherRequestBody` omite el campo cuando es null.
+//   3. El body del POST/PATCH. Aca estaba una TRAMPA del port, ya cerrada: el OUTPUT de
+//      `voucherFormSchema` (`creditDays: null` en CONTADO) no era un INPUT valido del mismo schema,
+//      porque `z.coerce.number(null)` da 0 y falla `min(1)`. El schema ahora trata `null` como
+//      ausente (L13), asi que su output vuelve a entrar; `toVoucherRequestBody` igual omite el campo
+//      cuando es null, y eso se prueba aca.
 //   4. Los textos de S5 que dictan la pantalla: la regla "FACTURA exige cliente con RUC" (que el
 //      API NO valida a proposito), el aviso de comprobante con pagos, y "Sin dirección registrada".
 import assert from "node:assert/strict";
@@ -122,11 +122,12 @@ describe("creditDaysForPaymentType", () => {
 });
 
 describe("toVoucherRequestBody", () => {
-  it("omite creditDays en CONTADO, porque el schema compartido rechaza el null de su propio output", () => {
+  it("manda un body que el schema compartido acepta, tambien en CONTADO", () => {
     const values = formValues();
 
-    // El output del formulario no es un input valido del schema: `z.coerce.number(null)` -> 0.
-    assert.equal(voucherFormSchema.safeParse(values).success, false);
+    // El output del schema tiene que poder volver a entrar como body (L13): si no, postear el
+    // resultado del propio formulario daria 400 en cada venta de contado.
+    assert.deepEqual(voucherFormSchema.parse(values), values);
 
     const body = toVoucherRequestBody(values);
 

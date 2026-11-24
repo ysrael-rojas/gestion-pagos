@@ -87,6 +87,12 @@ test("CONTADO descarta los dias de credito y devuelve el resto del payload intac
     voucherFormSchema.parse({ ...voucherBase, paymentType: "CONTADO", creditDays: "" }),
     esperado
   );
+  // Y `null` —lo que el propio schema devuelve— tiene que volver a entrar (L13): sin esto, postear
+  // el output del formulario daria 400 "Los días de crédito deben ser al menos 1" en CONTADO.
+  assert.deepEqual(
+    voucherFormSchema.parse({ ...voucherBase, paymentType: "CONTADO", creditDays: null }),
+    esperado
+  );
 });
 
 test("CREDITO exige los dias de credito con el mensaje del contrato", () => {

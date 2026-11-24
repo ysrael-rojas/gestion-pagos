@@ -68,7 +68,11 @@ export const voucherFormSchema = z
       .positive("El total debe ser mayor a 0"),
     paymentType: paymentTypeEnum,
     creditDays: z.preprocess(
-      (value) => (value === "" ? undefined : value),
+      // `null` cuenta como ausente, igual que `""`: es lo que el propio schema devuelve en CONTADO,
+      // y aceptarlo hace que su output vuelva a entrar como input (L13 del doc de la feature).
+      // `z.coerce.number(null)` daria 0 y romperia el `min(1)`, o sea un 400 en cada venta de
+      // contado que se postee con el resultado del formulario.
+      (value) => (value === "" || value === null ? undefined : value),
       z.coerce
         .number({ error: "Ingresa un número válido de días" })
         .int("Los días de crédito deben ser un número entero")

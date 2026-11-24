@@ -122,7 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
-      # Base virgen: es la unica forma de probar que las 50 migraciones aplican de cero, que los
+      # Base virgen: es la unica forma de probar que todas las migraciones aplican de cero, que los
       # seeds corren en el orden documentado y que la auditoria de RLS encuentra lo que S19 dice.
       postgres:
         image: postgres:18
@@ -155,7 +155,7 @@ jobs:
       - name: Instalar el cliente de postgres
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
-      - name: Aplicar las 50 migraciones
+      - name: Aplicar todas las migraciones
         run: pnpm --filter @gestion/db db:verify
 
       # Drift guard: el esquema de la base tiene que ser exactamente el del snapshot commiteado.
@@ -225,7 +225,7 @@ jobs:
       - name: Instalar el cliente de postgres
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
-      - name: Aplicar las 50 migraciones
+      - name: Aplicar todas las migraciones
         run: pnpm --filter @gestion/db db:verify
 
       - name: Sembrar la base (orden de S20)

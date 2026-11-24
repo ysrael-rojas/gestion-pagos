@@ -119,7 +119,7 @@ al menos `voucherFormSchema` se usa en el form y en el API.
 | --- | --- | --- | --- |
 | T1 | S2, S3, S4 | inline: helper de montos en `packages/shared` + limpieza de `creditDays` en el schema, con tests unitarios | hecho (L9) |
 | T2 | S6, S7, S8 | worker: migración con `crear_venta`/`editar_venta` + `advance_series_number`, grants y tests SQL | hecho (L10) |
-| T3 | S5, S6, S9 | worker: módulo `vouchers` en `apps/api` (controller, service, mapa de errores) + e2e | pendiente |
+| T3 | S5, S6, S9 | worker: módulo `vouchers` en `apps/api` (controller, service, mapa de errores) + e2e | hecho (L11) |
 | T4 | S5, S9, S10 | worker: `apps/web/lib/ventas` y `components/ventas` + form y detalle compartidos | pendiente |
 | T5 | S10, S11 | worker: ruta `/ventas`, navbar, allowlist del BFF, `specs/10-ventas.spec.ts` | pendiente |
 | T6 | S11 | parent: docs (`docs/operacion/` si hace falta), log y cierre del slice | pendiente |
@@ -189,6 +189,30 @@ nuevas, RED 9/9 sobre una base sin el archivo). Dos cosas que salieron de ahí:
 2. La atomicidad no se probaba con el camino feliz: se agregaron dos casos a
    `apps/api/test/ventas-rpc.e2e.test.ts` que inyectan un trigger de fallo sobre `voucher_series`
    (alta y edición) y exigen que no quede comprobante escrito y que la serie no avance (11/11).
+
+**L11** (evidencia, T3 cerrada): el worker de T3 se canceló a mitad de la corrida y **sí** dejó
+material: `apps/api/src/vouchers/` (7 archivos: controller, service, query, errors, types, tabla
+Drizzle y módulo) más `apps/api/test/vouchers.e2e.test.ts` y `vouchers.errors.test.ts`. Se terminó
+inline, no se descartó: typecheck del API en 0, 11/11 en el mapa de errores sin base, 14/14 en el
+e2e nuevo y **173/173** en la suite completa del API. El contrato HTTP quedó así, para T5:
+`GET /vouchers` (lista), `GET /vouchers/:id` (detalle con saldo), `POST /vouchers` (201) y
+`PATCH /vouchers/:id` (200, body completo); los cuatro con `SessionGuard`.
+
+Decisiones que quedan escritas en el código y que T4/T5 tienen que respetar:
+1. El cuerpo se valida con `voucherFormSchema` de `packages/shared` (S11) y los montos se derivan
+   con `saleAmounts`, no en el servicio ni en la migración.
+2. La fecha de emisión ausente se completa con `getTodayLocalDate()`, por composición sobre el
+   schema compartido; una fecha vacía sigue siendo el error de S4.
+3. "FACTURA exige cliente con RUC" **no** se valida en el API: es regla de pantalla del origen y
+   validarla acá rompería la edición de comprobantes históricos. Queda en T4 con los textos de S5.
+4. El saldo se lee aparte (`voucher_balance`) y su falla tiene mensaje propio (S6); el detalle no
+   lo funde con el comprobante.
+5. `VouchersModule` se registra DESPUÉS de `PaymentsModule`: `GET /vouchers/open` es la cartera y
+   Express resuelve por orden de registro.
+
+Nota de entorno para correr la suite del API: hace falta `BETTER_AUTH_URL` (sin ella los dos e2e
+que mandan `Origin` reciben 403 `Invalid origin` y el rojo se lee como regresión).
+
 
 
 ## Trampas conocidas (del port anterior)

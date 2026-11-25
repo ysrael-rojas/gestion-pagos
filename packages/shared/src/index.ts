@@ -20,9 +20,7 @@ export * from "./lib/schemas/nota";
 export * from "./lib/schemas/payment";
 export * from "./lib/schemas/payment-method";
 export * from "./lib/schemas/petty-cash-vale";
-export * from "./lib/schemas/purchase";
 export * from "./lib/schemas/reconciliation";
-export * from "./lib/schemas/sale";
 export * from "./lib/schemas/serie";
 export * from "./lib/schemas/voucher";
 

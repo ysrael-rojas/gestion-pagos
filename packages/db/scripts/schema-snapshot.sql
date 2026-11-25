@@ -208,7 +208,7 @@ COLUMN public.comprobante.motive_code type=text not_null=false default=- identit
 COLUMN public.comprobante.owner_id type=uuid not_null=true default=auth.uid() identity=- generated=-
 COLUMN public.comprobante.payment_type type=public.payment_type not_null=true default=- identity=- generated=-
 COLUMN public.comprobante.referenced_comprobante_id type=uuid not_null=false default=- identity=- generated=-
-COLUMN public.comprobante.registration_date type=date not_null=true default=CURRENT_DATE identity=- generated=-
+COLUMN public.comprobante.registration_date type=date not_null=true default=((now() AT TIME ZONE 'America/Lima'::text))::date identity=- generated=-
 COLUMN public.comprobante.status type=public.comprobante_status not_null=true default='PENDIENTE'::public.comprobante_status identity=- generated=-
 COLUMN public.comprobante.subtotal type=numeric(12,2) not_null=true default=- identity=- generated=-
 COLUMN public.comprobante.total type=numeric(12,2) not_null=true default=- identity=- generated=-

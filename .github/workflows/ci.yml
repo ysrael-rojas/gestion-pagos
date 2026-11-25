@@ -73,6 +73,12 @@ jobs:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci-throwaway
           POSTGRES_DB: gestion_ci
+          # Zona del NEGOCIO, no la del runner: `registration_date` tiene default `current_date`, y
+          # con el contenedor en UTC el "hoy" que escribe la base se adelanta un dia entre las 19:00
+          # y las 24:00 de Lima. Un e2e que compara esa fecha con el "hoy" del negocio fallo por eso
+          # (era un rojo dependiente de la hora a la que corria el CI). `TZ` fija el `timezone` de
+          # PostgreSQL en el arranque, y esa es la unica palanca: la app ya usa America/Lima.
+          TZ: America/Lima
         ports:
           - "5432:5432"
         options: >-
@@ -130,6 +136,10 @@ jobs:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci-throwaway
           POSTGRES_DB: gestion_ci
+          # Misma zona que el servicio del job `checks`: los seeds escriben fechas con
+          # `(now() at time zone 'America/Lima')::date` y la base tiene que estar en esa zona para
+          # que `current_date` signifique lo mismo en los tres jobs.
+          TZ: America/Lima
         ports:
           - "5432:5432"
         options: >-
@@ -200,6 +210,12 @@ jobs:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci-throwaway
           POSTGRES_DB: gestion_ci
+          # Es el job donde la zona importa de verdad: el detalle de un comprobante muestra
+          # `registration_date`, que la base escribe con `current_date`, y el spec lo compara con el
+          # "hoy" de America/Lima. Con el contenedor en UTC el rojo aparece solo entre las 19:00 y
+          # las 24:00 de Lima (reproducido: UTC daba 2026-11-25 y Lima 2026-11-24 en el mismo
+          # instante).
+          TZ: America/Lima
         ports:
           - "5432:5432"
         options: >-

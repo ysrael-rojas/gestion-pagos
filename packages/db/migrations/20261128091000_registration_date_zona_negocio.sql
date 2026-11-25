@@ -1,0 +1,32 @@
+-- ============================================================================
+-- `registration_date` pasa a ser la fecha del NEGOCIO, no la del contenedor.
+--
+-- Es la tercera aparicion del mismo defecto en este repo, y la ultima que quedaba:
+--   * `getTodayLocalDate()` (`packages/shared/src/lib/utils.ts`) y los seeds ya usan
+--     `America/Lima` desde `odd/tasks/hoy-en-zona-del-negocio.md`;
+--   * el default de `openingBalanceDate` de las cuentas de caja se corrigio en `cf30358`;
+--   * `registration_date` se quedo con `default current_date`, que significa "el dia que cree el
+--     servidor de base de datos", no el dia del negocio.
+--
+-- El sintoma medido: con el contenedor en UTC, entre las 19:00 y las 24:00 de Lima la base escribia
+-- la fecha de MAÑANA mientras la app mostraba la de hoy. Lo destapo el e2e del detalle de una venta
+-- (`apps/web/e2e/specs/10-ventas.spec.ts` compara la ficha contra el "hoy" de America/Lima) cuando
+-- el CI corrio en esa ventana horaria; reproducido con dos contenedores y el mismo instante:
+--   * sin TZ  -> show timezone = Etc/UTC,          current_date = 2026-11-25
+--   * TZ=Lima -> show timezone = America/Lima,     current_date = 2026-11-24
+--
+-- Por que el default y no el llamador: `registration_date` la escribe la tabla (ninguna RPC la
+-- incluye en su INSERT), asi que el unico lugar donde puede quedar bien es aca. Ponerla en cada RPC
+-- seria repetir la regla en tres funciones y volver a perderla en la cuarta.
+--
+-- Por que no se toca `issue_date`: esa fecha la elige el usuario y viaja en el request; solo cae al
+-- default cuando el formulario no la manda, y ese default ya lo pone `getTodayLocalDate()` en el API.
+-- `due_date` es generada desde `issue_date` + `credit_days` y hereda la zona correcta por
+-- construccion.
+--
+-- Idempotente: `alter column ... set default` converge al mismo estado. La tabla existe desde
+-- `20260928204043`.
+-- ============================================================================
+
+alter table public.comprobante
+  alter column registration_date set default ((now() at time zone 'America/Lima')::date);

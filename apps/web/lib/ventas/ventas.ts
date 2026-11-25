@@ -17,10 +17,16 @@
 // `apps/api/src/vouchers/vouchers.errors.ts`.
 //
 // `VOUCHER_SOURCES` es el punto donde el formulario y el detalle COMPARTIDOS con compras piden sus
-// datos (S1). Hoy solo VENTA tiene implementacion: compras es un slice posterior y `apps/api` no
-// expone sus rutas, asi que la fuente de COMPRA rechaza con un mensaje explicito en vez de devolver
-// datos inventados o de reventar con un `undefined`.
+// datos (S1). Los dos verticales estan portados: VENTA contra `/vouchers` y COMPRA contra
+// `/purchases` (T4 de compras, S7). El formulario y el detalle no saben cual es cual: eligen la
+// fuente por `voucherKind` y el resto del comportamiento sale de `voucherCopy`.
 import { request } from "../api/client.ts";
+import {
+  createCompra,
+  getCompra,
+  listCompras,
+  updateCompra,
+} from "../compras/compras.ts";
 import type {
   VoucherDetail,
   VoucherKind,
@@ -62,14 +68,7 @@ export interface VoucherSource {
   update: (id: string, body: VoucherWriteBody) => Promise<VoucherDetail>;
 }
 
-export const VOUCHER_KIND_NOT_PORTED =
-  "El vertical de compras todavía no está portado: apps/api no expone sus rutas.";
-
-function notPorted(): Promise<never> {
-  return Promise.reject(new Error(VOUCHER_KIND_NOT_PORTED));
-}
-
-/** Fuente de datos por vertical (S1). La de COMPRA se completa cuando se porte compras. */
+/** Fuente de datos por vertical (S1): el formulario y el detalle se montan igual en los dos. */
 export const VOUCHER_SOURCES: Record<VoucherKind, VoucherSource> = {
   VENTA: {
     list: listVentas,
@@ -78,9 +77,9 @@ export const VOUCHER_SOURCES: Record<VoucherKind, VoucherSource> = {
     update: updateVenta,
   },
   COMPRA: {
-    list: notPorted,
-    detail: notPorted,
-    create: notPorted,
-    update: notPorted,
+    list: listCompras,
+    detail: getCompra,
+    create: createCompra,
+    update: updateCompra,
   },
 };

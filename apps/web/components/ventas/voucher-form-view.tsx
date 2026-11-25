@@ -32,8 +32,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { VOUCHER_FORM_ID, VoucherForm } from "@/components/ventas/voucher-form";
 import { useVoucher } from "@/components/ventas/use-voucher";
 import { useVoucherSeries } from "@/components/ventas/use-voucher-series";
-import { toVoucherRequestBody, voucherCopy } from "@/lib/ventas/formulario";
-import { isSaleSeriesBlocked } from "@/lib/ventas/series";
+import { toVoucherRequestBody, voucherCopy } from "@/lib/ventas/formulario";import { isSaleSeriesBlocked } from "@/lib/ventas/series";
 import type { VoucherKind } from "@/lib/ventas/types";
 import { VOUCHER_SOURCES } from "@/lib/ventas/ventas";
 import type { VoucherFormValues } from "@gestion/shared/lib/schemas/voucher.ts";
@@ -83,7 +82,7 @@ export function VoucherFormView({
     setIsSaving(true);
 
     try {
-      const body = toVoucherRequestBody(values);
+      const body = toVoucherRequestBody(values, voucherKind);
       const saved =
         isEditing && voucherId
           ? await source.update(voucherId, body)

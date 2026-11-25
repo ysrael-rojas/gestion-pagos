@@ -21,6 +21,7 @@
 // documenta el comentario del render.
 // "Extractos" se enlazo en C6 y "Conciliacion" y "Configuracion" en C7, cuando su API quedo
 // expuesta (bank-reconciliations, cash-flow, payment-methods, receipt-categories y settings).
+// "Compras" se enlazo en T5 del slice 4, cuando `/compras` dejo de ser una ruta inexistente.
 
 import {
   Activity,
@@ -98,12 +99,16 @@ const LINKS: NavLink[] = [
   // `/configuracion`, que redirige a `/configuracion/series` (S9): es el destino que ya usaba el
   // enlace `Configurar series` de la pantalla de ventas, asi que el mapa de la app no cambia.
   { label: "Configuración", href: "/configuracion", icon: Settings },
+  // Vertical de compras (T5 del slice 4, S11): era la primera entrada de `PENDING_GROUPS` y se
+  // enlaza a `/compras`, que ya es una ruta real (listado, alta, detalle y edicion). Se agrega al
+  // FINAL, sin renombrar ni reordenar las anteriores, igual que se promovieron `Ventas` y
+  // `Configuración`; en el origen era un grupo con esas mismas rutas.
+  { label: "Compras", href: "/compras", icon: ShoppingCart },
   { label: "Estado del API", href: "/health", icon: Activity },
 ];
 
 /** Los modulos del origen, en el mismo orden que su barra, pendientes de port (T5c). */
 const PENDING_GROUPS: PendingGroup[] = [
-  { label: "Compras", icon: ShoppingCart, modules: ["/compras", "/compras/nuevo", "/compras/[id]"] },
   { label: "Notas y retenciones", icon: FileText, modules: ["/notas/credito", "/notas/debito", "/retenciones"] },
 ];
 

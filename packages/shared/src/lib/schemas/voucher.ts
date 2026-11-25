@@ -163,6 +163,16 @@ export const voucherFormSchema = voucherContract(voucherNumberSchema);
  */
 export const voucherWriteSchema = voucherContract(z.string().optional());
 
+/**
+ * Body del API de compras.
+ *
+ * El numero es OBLIGATORIO y viaja con el resto: en una compra el numero lo puso el proveedor, no lo
+ * asigna una serie nuestra (`odd/tasks/port-vertical-compras.md`, S2). Es la unica diferencia de
+ * contrato con la venta, y por eso sale de la misma fabrica y no de una copia.
+ */
+export const purchaseWriteSchema = voucherContract(voucherNumberSchema);
+
 export type VoucherFormValues = z.output<typeof voucherFormSchema>;
 export type VoucherFormInput = z.input<typeof voucherFormSchema>;
 export type VoucherWriteValues = z.output<typeof voucherWriteSchema>;
+export type PurchaseWriteValues = z.output<typeof purchaseWriteSchema>;

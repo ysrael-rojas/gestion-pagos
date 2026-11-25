@@ -23,7 +23,7 @@ Tres jobs en paralelo, cada uno con su propio `postgres:18` de servicio (virgen)
 | 5 | migraciones (la API las necesita) | `pnpm --filter @gestion/db db:verify` |
 | 6 | seeds en el orden de S20 | `pnpm --filter @gestion/db db:seed` |
 | 7 | tipos de los 4 paquetes | `pnpm typecheck` (turbo) |
-| 8 | tests | `pnpm test` (turbo; `@gestion/api` 224, con `--test-concurrency=1` porque sus e2e comparten el dueño demo y su credencial; `@gestion/web` 210) |
+| 8 | tests | `pnpm test` (turbo; `@gestion/api` 260, con `--test-concurrency=1` porque sus e2e comparten el dueño demo y su credencial; `@gestion/web` 228) |
 | 9 | build de todos los paquetes | `pnpm build` (turbo) |
 | 10 | **build frio de la web** | `rm -rf apps/web/.next && pnpm --filter @gestion/web build` |
 
@@ -62,7 +62,7 @@ duplicado -> edicion -> baja logica -> documento invalido (clientes); y dashboar
 | 6 | todas las migraciones | `pnpm --filter @gestion/db db:verify` |
 | 7 | seeds en el orden de S20 (la demo tiene que existir) | `pnpm --filter @gestion/db db:seed` |
 | 8 | **solo Chromium**, con sus dependencias de sistema | `pnpm --filter @gestion/web exec playwright install --with-deps chromium` |
-| 9 | **los 37 tests de los 12 specs** | `pnpm e2e` |
+| 9 | **los 41 tests de los 13 specs** | `pnpm e2e` |
 
 Un solo comando (`pnpm e2e` -> `turbo run e2e` -> `playwright test`): el `webServer` de
 `apps/web/playwright.config.ts` compila y levanta el API y la web, espera a que respondan y los
@@ -291,6 +291,7 @@ build viejo es peor que no tener e2e.
 | `10-ventas` | el vertical de ventas de punta a punta: el listado con sus columnas, filtros y `Registrar pago` solo en un comprobante pendiente, el alta por el formulario (con el número que asigna la base), dos altas seguidas sin huecos en el correlativo, el detalle con su saldo, la edición de un comprobante con pagos (aviso y los cuatro campos protegidos deshabilitados) y el dueño sin series, que no puede registrar |
 | `11-series` | Configuración → Series: `/configuracion` redirige a `/configuracion/series`, alta de una serie, código duplicado e inválido con sus mensajes, edición con el tipo fijo y una sola predeterminada por tipo, la baja lógica (que deja `deleted_at` en la base y la fila fuera de la tabla sin recargar a mano) y una serie de nota de crédito creada por el modal y usada desde el detalle de una venta |
 | `12-notas` | notas de crédito y débito desde el detalle de una venta: la nota aparece con el número que asignó su serie, el saldo del comprobante referenciado baja (crédito) o sube (débito), el tope excedido se rechaza con su mensaje, y un dueño sin serie de nota ve el bloqueo en vez del formulario |
+| `13-compras` | el vertical de compras: el alta con el número que trajo el proveedor y el IGV derivado, el listado con la columna Proveedor y el `Registrar pago` de una compra pendiente apuntando al egreso, el detalle con el saldo por pagar, la edición del número mientras no hay pagos y la edición bloqueada cuando la compra ya tiene uno |
 
 ### Determinismo
 

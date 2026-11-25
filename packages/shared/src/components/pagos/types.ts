@@ -1,4 +1,4 @@
-import type { PaymentType, VoucherType } from "../compras/types";
+import type { PaymentType, VoucherType } from "../comprobantes/types";
 import type { Currency } from "../../lib/utils";
 
 export type PaymentDirection = "INGRESO" | "EGRESO";
